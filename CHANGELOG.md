@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.16] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Normalize empty providers from URL host
+
 ## [0.1.15] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features

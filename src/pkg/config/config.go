@@ -210,7 +210,9 @@ func CheckAndLoad() error {
 	tagsChanged := normalizeTags()
 
 	// Normalize URLs in manifest to base repository links when possible
-	if normalizeManifestURLs() || keysChanged || mergeChanged || preTags || tagsChanged || remoteNameInManifest {
+	urlsChanged := normalizeManifestURLs()
+	providersChanged := normalizeProviders()
+	if urlsChanged || providersChanged || keysChanged || mergeChanged || preTags || tagsChanged || remoteNameInManifest {
 		if err := writeAll(); err != nil {
 			return err
 		}
@@ -346,6 +348,35 @@ func mergeSiblingManifests(configPath string, st *state) bool {
 			log.Warnf("Merged %s but could not rename it: %v", name, err)
 		}
 		log.Infof("Merged %d binaries from %s as tag %q", merged, name, tag)
+		changed = true
+	}
+	return changed
+}
+
+// normalizeProviders backfills an empty Provider from the URL host so older or
+// hand-edited manifests don't carry blank providers. Returns true if changed.
+func normalizeProviders() bool {
+	changed := false
+	for _, b := range cfg.Bins {
+		if b == nil || b.Provider != "" || b.URL == "" {
+			continue
+		}
+		host := ""
+		if u, err := url.Parse(b.URL); err == nil {
+			host = u.Host
+		}
+		switch {
+		case strings.Contains(host, "github"):
+			b.Provider = "github"
+		case strings.Contains(host, "gitlab"):
+			b.Provider = "gitlab"
+		case strings.Contains(host, "codeberg"):
+			b.Provider = "codeberg"
+		case strings.Contains(host, "releases.hashicorp.com"):
+			b.Provider = "hashicorp"
+		default:
+			continue
+		}
 		changed = true
 	}
 	return changed
