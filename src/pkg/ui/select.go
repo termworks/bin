@@ -18,14 +18,31 @@ func interactive() bool {
 
 // ---- single-choice selector ----
 
+// selectWindow is how many options are visible at once; the rest scroll.
+const selectWindow = 6
+
 type selectModel struct {
 	title  string
 	items  []string
 	cursor int
+	top    int
 	chosen int
 }
 
 func (m selectModel) Init() tea.Cmd { return nil }
+
+// clampWindow keeps the cursor within the visible scroll window.
+func (m *selectModel) clampWindow() {
+	if m.cursor < m.top {
+		m.top = m.cursor
+	}
+	if m.cursor >= m.top+selectWindow {
+		m.top = m.cursor - selectWindow + 1
+	}
+	if m.top < 0 {
+		m.top = 0
+	}
+}
 
 func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	k, ok := msg.(tea.KeyMsg)
@@ -43,6 +60,16 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
+	case "pgup", "ctrl+u":
+		m.cursor -= selectWindow
+		if m.cursor < 0 {
+			m.cursor = 0
+		}
+	case "pgdown", "ctrl+d":
+		m.cursor += selectWindow
+		if m.cursor > len(m.items)-1 {
+			m.cursor = len(m.items) - 1
+		}
 	case "home", "g":
 		m.cursor = 0
 	case "end", "G":
@@ -58,6 +85,7 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	m.clampWindow()
 	return m, nil
 }
 
@@ -67,14 +95,25 @@ func (m selectModel) View() string {
 	}
 	var b strings.Builder
 	b.WriteString(AccentStyle.Render(m.title) + "\n")
-	for i, it := range m.items {
+
+	end := m.top + selectWindow
+	if end > len(m.items) {
+		end = len(m.items)
+	}
+	if m.top > 0 {
+		b.WriteString(MutedStyle.Render(fmt.Sprintf("  ↑ %d more", m.top)) + "\n")
+	}
+	for i := m.top; i < end; i++ {
 		if i == m.cursor {
-			b.WriteString(AccentStyle.Render("▸ ") + lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(it) + "\n")
+			b.WriteString(AccentStyle.Render("▸ ") + lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(m.items[i]) + "\n")
 		} else {
-			b.WriteString("  " + MutedStyle.Render(it) + "\n")
+			b.WriteString("  " + MutedStyle.Render(m.items[i]) + "\n")
 		}
 	}
-	b.WriteString(MutedStyle.Render("↑/↓ move · 1-9 jump · enter select · esc cancel"))
+	if end < len(m.items) {
+		b.WriteString(MutedStyle.Render(fmt.Sprintf("  ↓ %d more", len(m.items)-end)) + "\n")
+	}
+	b.WriteString(MutedStyle.Render(fmt.Sprintf("[%d/%d] ↑/↓ move · enter select · esc cancel", m.cursor+1, len(m.items))))
 	return b.String()
 }
 

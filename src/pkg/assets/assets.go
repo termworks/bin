@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
+	"debug/elf"
+	"debug/macho"
+	"debug/pe"
 	"fmt"
 	"io"
 	"net/http"
@@ -543,10 +546,7 @@ func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 		return nil, fmt.Errorf("no files found in tar archive, use -p flag to manually select . PackagePath [%s]", f.opts.PackagePath)
 	}
 
-	as := make([]*Asset, 0)
-	for f := range tarFiles {
-		as = append(as, &Asset{Name: f, URL: ""})
-	}
+	as := binaryCandidates(tarFiles)
 	choice, err := f.FilterAssets(name, as)
 	if err != nil {
 		return nil, err
@@ -609,10 +609,7 @@ func (f *Filter) processZip(name string, r io.Reader) (*finalFile, error) {
 		return nil, fmt.Errorf("No files found in zip archive. PackagePath [%s]", f.opts.PackagePath)
 	}
 
-	as := make([]*Asset, 0)
-	for f := range zipFiles {
-		as = append(as, &Asset{Name: f, URL: ""})
-	}
+	as := binaryCandidates(zipFiles)
 	choice, err := f.FilterAssets(name, as)
 	if err != nil {
 		return nil, err
@@ -624,6 +621,49 @@ func (f *Filter) processZip(name string, r io.Reader) (*finalFile, error) {
 	// return base of selected file since tar
 	// files usually have folders inside
 	return &finalFile{Name: filepath.Base(selectedFile), Source: fr, PackagePath: selectedFile}, nil
+}
+
+// isBinaryFile reports whether data is an executable binary by actually
+// parsing it as one of the platform object formats (ELF, Mach-O incl. fat,
+// or PE). This introspects the real headers rather than sniffing magic bytes,
+// so docs/scripts/configs are reliably excluded.
+func isBinaryFile(data []byte) bool {
+	r := bytes.NewReader(data)
+	if f, err := elf.NewFile(r); err == nil {
+		f.Close()
+		return true
+	}
+	if f, err := macho.NewFile(r); err == nil {
+		f.Close()
+		return true
+	}
+	if f, err := macho.NewFatFile(r); err == nil {
+		f.Close()
+		return true
+	}
+	if f, err := pe.NewFile(r); err == nil {
+		f.Close()
+		return true
+	}
+	return false
+}
+
+// binaryCandidates returns only the executable binaries from an archive's
+// files. If none look like binaries, it falls back to all files so the user
+// can still pick manually.
+func binaryCandidates(files map[string][]byte) []*Asset {
+	bins := make([]*Asset, 0)
+	all := make([]*Asset, 0, len(files))
+	for name, data := range files {
+		all = append(all, &Asset{Name: name})
+		if isBinaryFile(data) {
+			bins = append(bins, &Asset{Name: name})
+		}
+	}
+	if len(bins) > 0 {
+		return bins
+	}
+	return all
 }
 
 // isSupportedExt checks if this provider supports
