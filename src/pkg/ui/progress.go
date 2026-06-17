@@ -50,13 +50,15 @@ func (p *ProgressReader) Finish() {
 }
 
 func (p *ProgressReader) render() {
-	// Size the bar to the terminal, leaving room for label + stats.
-	barW := TerminalWidth() - len(p.label) - 40
+	// Fixed-width columns so every row lines up regardless of label length:
+	//   "  ⤓ " + label(labelW) + "  " + bar(barW) + "  " + pct(4) + "  " + size(20)
+	const labelW = 26
+	barW := TerminalWidth() - labelW - 38
 	if barW < 10 {
 		barW = 10
 	}
-	if barW > 60 {
-		barW = 60
+	if barW > 50 {
+		barW = 50
 	}
 
 	frac := 0.0
@@ -79,20 +81,30 @@ func (p *ProgressReader) render() {
 		speed = int64(float64(p.read) / elapsed)
 	}
 
-	size := MutedStyle.Render(humanBytes(p.read))
+	sizeText := humanBytes(p.read)
 	if p.total > 0 {
-		size = MutedStyle.Render(fmt.Sprintf("%s/%s", humanBytes(p.read), humanBytes(p.total)))
+		sizeText = fmt.Sprintf("%s/%s", humanBytes(p.read), humanBytes(p.total))
 	}
+	stats := fmt.Sprintf("%-20s %9s/s", sizeText, humanBytes(speed))
 
 	line := fmt.Sprintf("  %s %s  %s  %s  %s",
 		AccentStyle.Render("⤓"),
-		TagStyle.Render(p.label),
+		TagStyle.Render(padRight(p.label, labelW)),
 		bar,
 		WarnStyle.Render(fmt.Sprintf("%3.0f%%", frac*100)),
-		size+MutedStyle.Render(fmt.Sprintf("  %s/s", humanBytes(speed))),
+		MutedStyle.Render(stats),
 	)
 	// \r to the line start, draw, then clear to end-of-line.
 	fmt.Fprintf(p.w, "\r%s\033[K", line)
+}
+
+// padRight truncates s to w columns (with an ellipsis) and right-pads to w.
+func padRight(s string, w int) string {
+	s = clip(s, w)
+	if n := w - len([]rune(s)); n > 0 {
+		s += strings.Repeat(" ", n)
+	}
+	return s
 }
 
 func humanBytes(n int64) string {
