@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/bresilla/bin/pkg/config"
+	"github.com/bresilla/bin/src/pkg/config"
 )
 
 func TestBinTagsDefault(t *testing.T) {

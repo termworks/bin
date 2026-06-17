@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bresilla/bin/pkg/config"
-	"github.com/bresilla/bin/pkg/options"
-	bstrings "github.com/bresilla/bin/pkg/strings"
+	"github.com/bresilla/bin/src/pkg/config"
+	"github.com/bresilla/bin/src/pkg/options"
+	bstrings "github.com/bresilla/bin/src/pkg/strings"
 	"github.com/caarlos0/log"
 	"github.com/cheggaaa/pb"
 	"github.com/h2non/filetype"

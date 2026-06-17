@@ -15,7 +15,7 @@ Effortless binary manager. Install, update, and organize standalone binaries pul
 ## Install
 
 ```sh
-go install github.com/bresilla/bin@latest
+go install github.com/bresilla/bin/src@latest
 ```
 
 or build from source:
@@ -181,7 +181,11 @@ Set as needed in your environment:
 ## Development
 
 ```sh
-make build      # go build .
+make build      # build ./bin (version-stamped)
+make install    # install to $PREFIX/bin (default ~/.local/bin)
+make run ARGS='list -t all'
 make test       # go test ./...
-make lint       # go fmt + go vet
+make verify     # fmt-check + vet + test
+make release TYPE=minor   # cut a release via git-rel
+make help       # list all targets
 ```
