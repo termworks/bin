@@ -62,6 +62,7 @@ type Binary struct {
 // persisted separately from the manifest
 type stateEntry struct {
 	Version            string   `json:"version"`
+	RemoteName         string   `json:"remote_name,omitempty"`
 	Hash               string   `json:"hash"`
 	PackagePath        string   `json:"package_path"`
 	Pinned             bool     `json:"pinned"`
@@ -108,6 +109,17 @@ func CheckAndLoad() error {
 	// state below. The rest of the codebase relies on key==Path.
 	keysChanged := normalizeManifestKeys()
 
+	// Detect a legacy manifest that still stores remote_name (now state-only):
+	// any RemoteName present right after decoding came from the manifest, so a
+	// rewrite is needed to move it into the state file.
+	remoteNameInManifest := false
+	for _, b := range cfg.Bins {
+		if b != nil && b.RemoteName != "" {
+			remoteNameInManifest = true
+			break
+		}
+	}
+
 	// Load state and overlay
 	sp, err := getStatePath(configPath)
 	if err != nil {
@@ -131,6 +143,9 @@ func CheckAndLoad() error {
 	for k, sb := range st.Bins {
 		if b, ok := cfg.Bins[k]; ok && sb != nil {
 			b.Version = sb.Version
+			if sb.RemoteName != "" {
+				b.RemoteName = sb.RemoteName
+			}
 			b.Hash = sb.Hash
 			b.PackagePath = sb.PackagePath
 			b.Pinned = sb.Pinned
@@ -195,7 +210,7 @@ func CheckAndLoad() error {
 	tagsChanged := normalizeTags()
 
 	// Normalize URLs in manifest to base repository links when possible
-	if normalizeManifestURLs() || keysChanged || mergeChanged || preTags || tagsChanged {
+	if normalizeManifestURLs() || keysChanged || mergeChanged || preTags || tagsChanged || remoteNameInManifest {
 		if err := writeAll(); err != nil {
 			return err
 		}
@@ -421,6 +436,9 @@ func UpsertBinary(c *Binary) error {
 			if len(c.PackageFingerprint) == 0 {
 				c.PackageFingerprint = existing.PackageFingerprint
 			}
+			if c.RemoteName == "" {
+				c.RemoteName = existing.RemoteName
+			}
 			// Tags live in the manifest; preserve them unless the caller is
 			// explicitly setting them (e.g. install or the `tag` command).
 			if len(c.Tags) == 0 {
@@ -476,7 +494,6 @@ type manifestConfig struct {
 
 type manifestBinary struct {
 	Path        string   `json:"path"`
-	RemoteName  string   `json:"remote_name"`
 	URL         string   `json:"url"`
 	Provider    string   `json:"provider"`
 	Description string   `json:"description,omitempty"`
@@ -502,7 +519,6 @@ func writeManifest(manifestPath string) error {
 		}
 		out.Bins[k] = &manifestBinary{
 			Path:        b.Path,
-			RemoteName:  b.RemoteName,
 			URL:         b.URL,
 			Provider:    b.Provider,
 			Description: b.Description,
@@ -530,7 +546,7 @@ func writeState(statePath string) error {
 		if b == nil {
 			continue
 		}
-		st.Bins[k] = &stateEntry{Version: b.Version, Hash: b.Hash, PackagePath: b.PackagePath, Pinned: b.Pinned, URL: b.StateURL, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint}
+		st.Bins[k] = &stateEntry{Version: b.Version, RemoteName: b.RemoteName, Hash: b.Hash, PackagePath: b.PackagePath, Pinned: b.Pinned, URL: b.StateURL, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint}
 	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "    ")
