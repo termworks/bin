@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.15] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Migrate RemoteName field to state file
+
 ## [0.1.14] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features
