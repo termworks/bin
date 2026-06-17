@@ -130,7 +130,7 @@ func newUpdateCmd() *updateCmd {
 				}
 				log.Debugf("Using provider '%s' for '%s'", p.GetID(), ui.url)
 
-				pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackagePath: b.PackagePath, SkipPatchCheck: root.opts.skipPathCheck, PackageName: b.RemoteName, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, Recheck: root.opts.recheck})
+				pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackagePath: b.PackagePath, SkipPatchCheck: root.opts.skipPathCheck, PackageName: b.RemoteName, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint, Recheck: root.opts.recheck})
 				if err != nil {
 					if root.opts.continueOnError {
 						updateFailures[b] = fmt.Errorf("Error while fetching %v: %w", ui.url, err)
@@ -145,16 +145,17 @@ func newUpdateCmd() *updateCmd {
 				}
 
 				err = config.UpsertBinary(&config.Binary{
-					RemoteName:       pResult.Name,
-					Path:             b.Path,
-					Version:          pResult.Version,
-					Hash:             fmt.Sprintf("%x", hash),
-					URL:              b.URL,
-					Provider:         p.GetID(),
-					PackagePath:      pResult.PackagePath,
-					StateURL:         ui.url,
-					SelectedAsset:    pResult.SelectedAsset,
-					AssetFingerprint: pResult.AssetFingerprint,
+					RemoteName:         pResult.Name,
+					Path:               b.Path,
+					Version:            pResult.Version,
+					Hash:               fmt.Sprintf("%x", hash),
+					URL:                b.URL,
+					Provider:           p.GetID(),
+					PackagePath:        pResult.PackagePath,
+					StateURL:           ui.url,
+					SelectedAsset:      pResult.SelectedAsset,
+					AssetFingerprint:   pResult.AssetFingerprint,
+					PackageFingerprint: pResult.PackageFingerprint,
 				})
 
 				if err != nil {

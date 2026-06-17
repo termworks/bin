@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.10] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Improve logic for selecting files within archives
+
 ## [0.1.9] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features

@@ -23,6 +23,9 @@ type File struct {
 	// the caller can persist them and avoid re-prompting on future updates.
 	SelectedAsset    string
 	AssetFingerprint []string
+	// PackageFingerprint is the normalized set of installable files seen inside
+	// the archive, persisted so the inner-file choice can be reused too.
+	PackageFingerprint []string
 }
 
 func (f *File) Hash() ([]byte, error) {
@@ -44,6 +47,8 @@ type FetchOpts struct {
 	SelectedAsset    string
 	AssetFingerprint []string
 	Recheck          bool
+	// PackageFingerprint carries the remembered inner-archive file set.
+	PackageFingerprint []string
 	// NonInteractive makes asset selection fail instead of prompting.
 	NonInteractive bool
 }
