@@ -82,7 +82,7 @@ func newEnsureCmd() *ensureCmd {
 				}
 				log.Debugf("Using provider '%s' for '%s'", p.GetID(), binCfg.URL)
 
-				pResult, err := p.Fetch(&providers.FetchOpts{Version: binCfg.Version, PackagePath: binCfg.PackagePath, PackageName: binCfg.RemoteName, SelectedAsset: binCfg.SelectedAsset, AssetFingerprint: binCfg.AssetFingerprint})
+				pResult, err := p.Fetch(&providers.FetchOpts{Version: binCfg.Version, PackagePath: binCfg.PackagePath, PackageName: binCfg.RemoteName, SelectedAsset: binCfg.SelectedAsset, AssetFingerprint: binCfg.AssetFingerprint, PackageFingerprint: binCfg.PackageFingerprint})
 				if err != nil {
 					return err
 				}
@@ -93,15 +93,16 @@ func newEnsureCmd() *ensureCmd {
 				}
 
 				err = config.UpsertBinary(&config.Binary{
-					RemoteName:       pResult.Name,
-					Path:             binCfg.Path,
-					Version:          pResult.Version,
-					Hash:             fmt.Sprintf("%x", hash),
-					URL:              binCfg.URL,
-					Provider:         p.GetID(),
-					PackagePath:      pResult.PackagePath,
-					SelectedAsset:    pResult.SelectedAsset,
-					AssetFingerprint: pResult.AssetFingerprint,
+					RemoteName:         pResult.Name,
+					Path:               binCfg.Path,
+					Version:            pResult.Version,
+					Hash:               fmt.Sprintf("%x", hash),
+					URL:                binCfg.URL,
+					Provider:           p.GetID(),
+					PackagePath:        pResult.PackagePath,
+					SelectedAsset:      pResult.SelectedAsset,
+					AssetFingerprint:   pResult.AssetFingerprint,
+					PackageFingerprint: pResult.PackageFingerprint,
 				})
 				if err != nil {
 					return err

@@ -66,9 +66,10 @@ type FilteredAsset struct {
 }
 
 type finalFile struct {
-	Source      io.Reader
-	Name        string
-	PackagePath string
+	Source             io.Reader
+	Name               string
+	PackagePath        string
+	PackageFingerprint []string
 }
 
 type platformResolver interface {
@@ -78,10 +79,11 @@ type platformResolver interface {
 }
 
 type Filter struct {
-	opts        *FilterOpts
-	repoName    string
-	name        string
-	packagePath string
+	opts               *FilterOpts
+	repoName           string
+	name               string
+	packagePath        string
+	packageFingerprint []string
 }
 
 type FilterOpts struct {
@@ -94,8 +96,12 @@ type FilterOpts struct {
 
 	// If target file is in a package format (tar, zip,etc) use this
 	// variable to filter the resulting outputs. This is very useful
-	// so we don't prompt the user to pick the file again on updates
-	PackagePath string
+	// so we don't prompt the user to pick the file again on updates.
+	// PackageFingerprint is the version-normalized set of installable files
+	// the package path was chosen from — when it's unchanged we reuse the same
+	// file (with the new version in its name); when it changes we re-prompt.
+	PackagePath        string
+	PackageFingerprint []string
 
 	// SelectedAsset is the previously chosen asset (version-normalized) and
 	// AssetFingerprint the normalized asset set it was chosen from. When the
@@ -491,12 +497,15 @@ func (f *Filter) processReader(r io.Reader) (*finalFile, error) {
 
 		f.name = outFile.Name
 		f.packagePath = outFile.PackagePath
+		if len(outFile.PackageFingerprint) > 0 {
+			f.packageFingerprint = outFile.PackageFingerprint
+		}
 
 		// In case of e.g. a .tar.gz, process the uncompressed archive by calling recursively
 		return f.processReader(outputFile)
 	}
 
-	return &finalFile{Source: outputFile, Name: f.name, PackagePath: f.packagePath}, err
+	return &finalFile{Source: outputFile, Name: f.name, PackagePath: f.packagePath, PackageFingerprint: f.packageFingerprint}, err
 }
 
 // processGz receives a tar.gz file and returns the
@@ -526,15 +535,7 @@ func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 			continue
 		}
 
-		if !f.opts.SkipPathCheck && len(f.opts.PackagePath) > 0 && header.Name != f.opts.PackagePath {
-			continue
-		}
-
 		if header.Typeflag == tar.TypeReg {
-			// TODO we're basically reading all the files
-			// isn't there a way just to store the reference
-			// where this data is so we don't have to do this or
-			// re-scan the archive twice afterwards?
 			bs, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, err
@@ -543,19 +544,14 @@ func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 		}
 	}
 	if len(tarFiles) == 0 {
-		return nil, fmt.Errorf("no files found in tar archive, use -p flag to manually select . PackagePath [%s]", f.opts.PackagePath)
+		return nil, fmt.Errorf("no files found in tar archive")
 	}
 
-	as := binaryCandidates(tarFiles)
-	choice, err := f.FilterAssets(name, as)
+	selectedFile, err := f.pickArchiveFile(name, tarFiles)
 	if err != nil {
 		return nil, err
 	}
-	selectedFile := choice.String()
-
-	tf := tarFiles[selectedFile]
-
-	return &finalFile{Source: bytes.NewReader(tf), Name: filepath.Base(selectedFile), PackagePath: selectedFile}, nil
+	return &finalFile{Source: bytes.NewReader(tarFiles[selectedFile]), Name: filepath.Base(selectedFile), PackagePath: selectedFile, PackageFingerprint: f.packageFingerprint}, nil
 }
 
 func (f *Filter) processBz2(name string, r io.Reader) (*finalFile, error) {
@@ -590,37 +586,58 @@ func (f *Filter) processZip(name string, r io.Reader) (*finalFile, error) {
 			continue
 		}
 
-		if !f.opts.SkipPathCheck && len(f.opts.PackagePath) > 0 && header.Name != f.opts.PackagePath {
-			continue
-		}
-
-		// TODO we're basically reading all the files
-		// isn't there a way just to store the reference
-		// where this data is so we don't have to do this or
-		// re-scan the archive twice afterwards?
 		bs, err := io.ReadAll(zr)
 		if err != nil {
 			return nil, err
 		}
-
 		zipFiles[header.Name] = bs
 	}
 	if len(zipFiles) == 0 {
-		return nil, fmt.Errorf("No files found in zip archive. PackagePath [%s]", f.opts.PackagePath)
+		return nil, fmt.Errorf("no files found in zip archive")
 	}
 
-	as := binaryCandidates(zipFiles)
-	choice, err := f.FilterAssets(name, as)
+	selectedFile, err := f.pickArchiveFile(name, zipFiles)
 	if err != nil {
 		return nil, err
 	}
-	selectedFile := choice.String()
+	// return base of selected file since archives usually have folders inside
+	return &finalFile{Name: filepath.Base(selectedFile), Source: bytes.NewReader(zipFiles[selectedFile]), PackagePath: selectedFile, PackageFingerprint: f.packageFingerprint}, nil
+}
 
-	fr := bytes.NewReader(zipFiles[selectedFile])
+// pickArchiveFile decides which file inside an archive to extract, mirroring
+// the release-asset logic one level down:
+//  1. keep only installable files (binaries or nested archives),
+//  2. if the remembered package fingerprint is unchanged (only versions
+//     differ), reuse the same file with the new version in its name — no prompt,
+//  3. if the set of files changed (e.g. a new musl build appears) re-prompt,
+//  4. a single installable file always auto-selects.
+//
+// It records the current fingerprint on the Filter so it can be persisted.
+func (f *Filter) pickArchiveFile(name string, files map[string][]byte) (string, error) {
+	usable := installableCandidates(files)
+	fp := Fingerprint(usable)
+	f.packageFingerprint = fp
 
-	// return base of selected file since tar
-	// files usually have folders inside
-	return &finalFile{Name: filepath.Base(selectedFile), Source: fr, PackagePath: selectedFile}, nil
+	if !f.opts.Recheck && !f.opts.SkipPathCheck && f.opts.PackagePath != "" {
+		want := NormalizeAssetName(f.opts.PackagePath)
+		if stringSlicesEqual(fp, f.opts.PackageFingerprint) {
+			for _, a := range usable {
+				if NormalizeAssetName(a.Name) == want {
+					log.Debugf("Reusing remembered package %q as %q (layout unchanged)", f.opts.PackagePath, a.Name)
+					return a.Name, nil
+				}
+			}
+			log.Debugf("Remembered package %q not found; re-selecting", f.opts.PackagePath)
+		} else {
+			log.Infof("Archive contents changed since last update; please re-select")
+		}
+	}
+
+	choice, err := f.FilterAssets(name, usable)
+	if err != nil {
+		return "", err
+	}
+	return choice.String(), nil
 }
 
 // isBinaryFile reports whether data is an executable binary by actually
@@ -648,20 +665,30 @@ func isBinaryFile(data []byte) bool {
 	return false
 }
 
-// binaryCandidates returns only the executable binaries from an archive's
-// files. If none look like binaries, it falls back to all files so the user
-// can still pick manually.
-func binaryCandidates(files map[string][]byte) []*Asset {
-	bins := make([]*Asset, 0)
+// isCompressedFile reports whether data is a supported archive/compression
+// wrapper (so nested archives inside an archive stay selectable).
+func isCompressedFile(data []byte) bool {
+	switch t, _ := filetype.Match(data); t {
+	case matchers.TypeGz, matchers.TypeTar, matchers.TypeXz, matchers.TypeBz2, matchers.TypeZip:
+		return true
+	}
+	return false
+}
+
+// installableCandidates returns only the files bin can install from an archive
+// — executable binaries or nested archives. If none qualify, it falls back to
+// all files so the user can still pick manually.
+func installableCandidates(files map[string][]byte) []*Asset {
+	keep := make([]*Asset, 0)
 	all := make([]*Asset, 0, len(files))
 	for name, data := range files {
 		all = append(all, &Asset{Name: name})
-		if isBinaryFile(data) {
-			bins = append(bins, &Asset{Name: name})
+		if isBinaryFile(data) || isCompressedFile(data) {
+			keep = append(keep, &Asset{Name: name})
 		}
 	}
-	if len(bins) > 0 {
-		return bins
+	if len(keep) > 0 {
+		return keep
 	}
 	return all
 }

@@ -52,18 +52,23 @@ type Binary struct {
 	// state and used to skip re-prompting unless the release layout changes.
 	SelectedAsset    string   `json:"-"`
 	AssetFingerprint []string `json:"-"`
+	// PackageFingerprint is the normalized set of installable files seen inside
+	// the archive at selection time (state-only), used to reuse or re-prompt the
+	// inner-file choice across updates.
+	PackageFingerprint []string `json:"-"`
 }
 
 // stateEntry contains per-machine mutable data
 // persisted separately from the manifest
 type stateEntry struct {
-	Version          string   `json:"version"`
-	Hash             string   `json:"hash"`
-	PackagePath      string   `json:"package_path"`
-	Pinned           bool     `json:"pinned"`
-	URL              string   `json:"url"`
-	SelectedAsset    string   `json:"selected_asset,omitempty"`
-	AssetFingerprint []string `json:"asset_fingerprint,omitempty"`
+	Version            string   `json:"version"`
+	Hash               string   `json:"hash"`
+	PackagePath        string   `json:"package_path"`
+	Pinned             bool     `json:"pinned"`
+	URL                string   `json:"url"`
+	SelectedAsset      string   `json:"selected_asset,omitempty"`
+	AssetFingerprint   []string `json:"asset_fingerprint,omitempty"`
+	PackageFingerprint []string `json:"package_fingerprint,omitempty"`
 }
 
 type state struct {
@@ -132,6 +137,7 @@ func CheckAndLoad() error {
 			b.StateURL = sb.URL
 			b.SelectedAsset = sb.SelectedAsset
 			b.AssetFingerprint = sb.AssetFingerprint
+			b.PackageFingerprint = sb.PackageFingerprint
 		}
 	}
 
@@ -412,6 +418,9 @@ func UpsertBinary(c *Binary) error {
 			if len(c.AssetFingerprint) == 0 {
 				c.AssetFingerprint = existing.AssetFingerprint
 			}
+			if len(c.PackageFingerprint) == 0 {
+				c.PackageFingerprint = existing.PackageFingerprint
+			}
 			// Tags live in the manifest; preserve them unless the caller is
 			// explicitly setting them (e.g. install or the `tag` command).
 			if len(c.Tags) == 0 {
@@ -521,7 +530,7 @@ func writeState(statePath string) error {
 		if b == nil {
 			continue
 		}
-		st.Bins[k] = &stateEntry{Version: b.Version, Hash: b.Hash, PackagePath: b.PackagePath, Pinned: b.Pinned, URL: b.StateURL, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint}
+		st.Bins[k] = &stateEntry{Version: b.Version, Hash: b.Hash, PackagePath: b.PackagePath, Pinned: b.Pinned, URL: b.StateURL, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint}
 	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "    ")
