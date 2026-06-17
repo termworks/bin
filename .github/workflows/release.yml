@@ -44,7 +44,7 @@ jobs:
             out="bin"; [ "$GOOS" = "windows" ] && out="bin.exe"
             echo "building $GOOS/$GOARCH"
             go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./src
-            pkg="bin_${VERSION}_${GOOS}_${GOARCH}"
+            pkg="bin_${GOOS}_${GOARCH}"
             if [ "$GOOS" = "windows" ]; then
               zip -q "dist/${pkg}.zip" "$out" README.md
             else

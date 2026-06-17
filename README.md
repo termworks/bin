@@ -124,9 +124,9 @@ Run `bin` (no args) to open the interactive UI: a full-width list with two-line 
 | `?` | toggle full help |
 | `q` | quit |
 
-### Theming (`tui.conf`)
+### Theming (`config`)
 
-On first run `bin` writes `tui.conf` next to its config. Colors are **terminal palette indexes (0–255) or hex** — so pywal-style tools recolor `bin` automatically, and the `232..255` grayscale ramp gives subtle row shading:
+On first run `bin` writes a `config` file. Colors are **terminal palette indexes (0–255) or hex** — so pywal-style tools recolor `bin` automatically, and the `232..255` grayscale ramp gives subtle row shading:
 
 ```ini
 # foreground colors
@@ -145,9 +145,9 @@ row_bg_selected = 237
 
 | File | Purpose |
 | --- | --- |
-| `$XDG_CONFIG_HOME/bin/config.json` | **Manifest** — portable: path, url, provider, tags, description |
+| `$XDG_CONFIG_HOME/bin/list.json` | **Manifest** — portable: path, url, provider, tags, description |
 | `$XDG_DATA_HOME/bin/config.state.json` | **State** — per-machine: version, hash, package path, pinned, selected asset |
-| `$XDG_CONFIG_HOME/bin/tui.conf` | TUI colors |
+| `$XDG_CONFIG_HOME/bin/config` | TUI colors |
 
 The manifest and per-machine state are kept separate so the manifest is safe to share or check into dotfiles. Config resolution honors `$XDG_CONFIG_HOME`, falling back to `~/.config/bin` (or a legacy `~/.bin`).
 

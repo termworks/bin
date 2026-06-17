@@ -145,8 +145,8 @@ func newRootCmd(version string, exit func(int)) *rootCmd {
 				log.Fatalf("Error loading config file %v", err)
 			}
 
-			// Load (or create) the TUI color theme from tui.conf.
-			ui.EnsureTheme(filepath.Join(config.ConfigDir(), "tui.conf"))
+			// Load (or create) the TUI color theme from the config file.
+			ui.EnsureTheme(filepath.Join(config.ConfigDir(), "config"))
 		},
 	}
 

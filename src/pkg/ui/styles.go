@@ -13,7 +13,7 @@ import (
 // Palette — terminal color indexes used across the CLI and TUI.
 //
 // These default to ANSI palette names so pywal-style tools can recolor bin by
-// changing the terminal palette. They can be overridden per-user via tui.conf
+// changing the terminal palette. They can be overridden per-user via the config file
 // (see EnsureTheme / LoadTheme), e.g. with the 232..255 grayscale ramp.
 var (
 	ColorPrimary = lipgloss.Color("1")  // accent
@@ -57,7 +57,7 @@ func applyStyles() {
 	BorderStyle = lipgloss.NewStyle().Foreground(ColorMuted)
 }
 
-// DefaultThemeConf is written to tui.conf the first time bin runs, so users have
+// DefaultThemeConf is written to the config file the first time bin runs, so users have
 // a documented file to tweak.
 const DefaultThemeConf = `# bin TUI theme — colors are terminal palette indexes (0-255) or hex (#aabbcc).
 # Palette names recolor automatically with pywal-style tools. The 232..255
@@ -78,7 +78,7 @@ row_bg_alt      = 235  # odd rows
 row_bg_selected = 237  # selected row
 `
 
-// EnsureTheme writes a default tui.conf if missing, then loads it.
+// EnsureTheme writes a default config if missing, then loads it.
 func EnsureTheme(path string) {
 	if path == "" {
 		return

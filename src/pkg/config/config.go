@@ -388,7 +388,7 @@ func Get() *config {
 	return &cfg
 }
 
-// ConfigDir returns the directory holding the manifest (and tui.conf).
+// ConfigDir returns the directory holding the manifest (and config).
 func ConfigDir() string {
 	p, err := getConfigPath()
 	if err != nil {
@@ -549,9 +549,9 @@ func GetOS() []string {
 	return res
 }
 
-// getConfigPath returns the path to the configuration directory respecting
+// getConfigPath returns the path to the manifest file (list.json) respecting
 // the `XDG Base Directory specification` using the following strategy:
-//   - to prevent breaking of existing configurations, check if "$HOME/.bin/config.json"
+//   - to prevent breaking of existing configurations, check if "$HOME/.bin/list.json"
 //     exists and return "$HOME/.bin"
 //   - if "XDG_CONFIG_HOME" is set, return "$XDG_CONFIG_HOME/bin"
 //   - if "$HOME/.config" exists, return "$home/.config/bin"
@@ -561,23 +561,23 @@ func getConfigPath() (string, error) {
 
 	home, homeErr := os.UserHomeDir()
 	if homeErr == nil {
-		if _, err := os.Stat(filepath.Join(home, ".bin", "config.json")); !os.IsNotExist(err) {
-			return filepath.Join(path.Join(home, ".bin", "config.json")), nil
+		if _, err := os.Stat(filepath.Join(home, ".bin", "list.json")); !os.IsNotExist(err) {
+			return filepath.Join(path.Join(home, ".bin", "list.json")), nil
 		}
 	}
 
 	c = os.Getenv("XDG_CONFIG_HOME")
 	if c != "" {
-		return filepath.Join(c, "bin", "config.json"), nil
+		return filepath.Join(c, "bin", "list.json"), nil
 	}
 	if homeErr != nil {
 		return "", homeErr
 	}
 	c = filepath.Join(home, ".config")
 	if _, err := os.Stat(c); !os.IsNotExist(err) {
-		return filepath.Join(c, "bin", "config.json"), nil
+		return filepath.Join(c, "bin", "list.json"), nil
 	}
-	return filepath.Join(home, ".bin", "config.json"), nil
+	return filepath.Join(home, ".bin", "list.json"), nil
 }
 
 // getStatePath computes the per-machine state file path derived from manifest path
