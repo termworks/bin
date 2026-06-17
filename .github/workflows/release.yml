@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - '**'
+      - '*'
   workflow_dispatch:
     inputs:
       tag:
@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -22,16 +22,44 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag || github.ref }}
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
           check-latest: true
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+
+      - name: Build release binaries
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.builtBy=github-actions"
+
+          mkdir -p dist
+          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
+          for t in $targets; do
+            export GOOS="${t%/*}" GOARCH="${t#*/}" CGO_ENABLED=0
+            out="bin"; [ "$GOOS" = "windows" ] && out="bin.exe"
+            echo "building $GOOS/$GOARCH"
+            go build -trimpath -ldflags "$LDFLAGS" -o "$out" ./src
+            pkg="bin_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              zip -q "dist/${pkg}.zip" "$out" README.md
+            else
+              tar -czf "dist/${pkg}.tar.gz" "$out" README.md
+            fi
+            rm -f "$out"
+          done
+          ( cd dist && sha256sum * > SHA256SUMS )
+          ls -la dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: release --clean
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

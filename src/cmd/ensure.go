@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/bresilla/bin/pkg/config"
-	"github.com/bresilla/bin/pkg/providers"
+	"github.com/bresilla/bin/src/pkg/config"
+	"github.com/bresilla/bin/src/pkg/providers"
 	"github.com/caarlos0/log"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"

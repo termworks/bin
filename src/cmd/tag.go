@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bresilla/bin/pkg/config"
+	"github.com/bresilla/bin/src/pkg/config"
 	"github.com/caarlos0/log"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"

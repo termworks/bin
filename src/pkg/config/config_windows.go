@@ -1,5 +1,3 @@
-//go:build !windows
-
 package config
 
 import (
@@ -8,9 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bresilla/bin/pkg/options"
+	"github.com/bresilla/bin/src/pkg/options"
 	"github.com/caarlos0/log"
-	"golang.org/x/sys/unix"
 )
 
 // getDefaultPath reads the user's PATH variable
@@ -22,11 +19,9 @@ func getDefaultPath() (string, error) {
 	penv := os.Getenv("PATH")
 	log.Debugf("User PATH is [%s]", penv)
 	opts := map[fmt.Stringer]struct{}{}
-	for _, p := range strings.Split(penv, ":") {
-		log.Debugf("Checking path %s", p)
+	for _, p := range strings.Split(penv, ";") {
 
-		err := checkDirExistsAndWritable(p)
-		if err != nil {
+		if err := checkDirExistsAndWritable(p); err != nil {
 			log.Debugf("Error [%s] checking path", err)
 			continue
 		}
@@ -36,8 +31,6 @@ func getDefaultPath() (string, error) {
 
 	}
 
-	// TODO this logic is also duplicated in the windows config. We should
-	// move it to config.go
 	if len(opts) == 0 {
 		return "", errors.New("Automatic path detection didn't return any results")
 	}
@@ -52,15 +45,20 @@ func getDefaultPath() (string, error) {
 		return "", err
 	}
 	return choice.(fmt.Stringer).String(), nil
+
 }
 
 func checkDirExistsAndWritable(dir string) error {
-	if fi, err := os.Stat(dir); err != nil {
-		return fmt.Errorf("Error setting download path [%w]", err)
-	} else if !fi.IsDir() {
-		return errors.New("Download path is not a directory")
+	log.Debugf("Checking path %s", dir)
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return err
 	}
-	// TODO make this work in non unix platforms
-	err := unix.Access(dir, unix.W_OK)
-	return err
+
+	// Check if the user bit is enabled in file permission
+	if info.Mode().Perm()&(1<<(uint(7))) == 0 {
+		return errors.New(fmt.Sprintf("Dir %s is not writable", dir))
+	}
+	return nil
+
 }

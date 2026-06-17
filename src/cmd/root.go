@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bresilla/bin/pkg/config"
-	"github.com/bresilla/bin/pkg/ui"
+	"github.com/bresilla/bin/src/pkg/config"
+	"github.com/bresilla/bin/src/pkg/ui"
 	"github.com/caarlos0/log"
 	"github.com/fatih/color"
 	"github.com/mattn/go-isatty"

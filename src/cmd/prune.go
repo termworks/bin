@@ -3,8 +3,8 @@ package cmd
 import (
 	"os"
 
-	"github.com/bresilla/bin/pkg/config"
-	"github.com/bresilla/bin/pkg/prompt"
+	"github.com/bresilla/bin/src/pkg/config"
+	"github.com/bresilla/bin/src/pkg/prompt"
 	"github.com/caarlos0/log"
 	"github.com/spf13/cobra"
 )

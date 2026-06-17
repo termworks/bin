@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bresilla/bin/pkg/config"
-	"github.com/bresilla/bin/pkg/providers"
-	"github.com/bresilla/bin/pkg/ui"
+	"github.com/bresilla/bin/src/pkg/config"
+	"github.com/bresilla/bin/src/pkg/providers"
+	"github.com/bresilla/bin/src/pkg/ui"
 	"github.com/caarlos0/log"
 	"github.com/spf13/cobra"
 )
