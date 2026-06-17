@@ -47,6 +47,8 @@ type FetchOpts struct {
 	SelectedAsset    string
 	AssetFingerprint []string
 	Recheck          bool
+	// Auto auto-selects without prompting (preferring musl). Used by ensure.
+	Auto bool
 	// PackageFingerprint carries the remembered inner-archive file set.
 	PackageFingerprint []string
 	// NonInteractive makes asset selection fail instead of prompting.

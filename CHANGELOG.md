@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.13] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Add asset auto-selection based on libc preference
+
 ## [0.1.12] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features
