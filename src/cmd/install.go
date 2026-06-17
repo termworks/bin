@@ -11,7 +11,6 @@ import (
 	"github.com/bresilla/bin/src/pkg/assets"
 	"github.com/bresilla/bin/src/pkg/config"
 	"github.com/bresilla/bin/src/pkg/providers"
-	"github.com/bresilla/bin/src/pkg/ui"
 	"github.com/caarlos0/log"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +38,6 @@ func newInstallCmd() *installCmd {
 		Args:          cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			u := args[0]
-			fmt.Printf("\n%s %s\n\n", ui.Banner(" install "), ui.AccentStyle.Render(u))
 			defaultPath := config.Get().DefaultPath
 
 			var resolvedPath string

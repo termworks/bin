@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.6] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Implement interactive UI for prompts and selections
+
 ## [0.1.5] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features
