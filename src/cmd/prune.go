@@ -23,6 +23,7 @@ func newPruneCmd() *pruneCmd {
 	// nolint: dupl
 	cmd := &cobra.Command{
 		Use:           "prune",
+		Aliases:       []string{"clean", "gc"},
 		Short:         "Prunes binaries that no longer exist in the system",
 		SilenceUsage:  true,
 		SilenceErrors: true,

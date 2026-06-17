@@ -42,6 +42,7 @@ func newDescribeCmd() *describeCmd {
 	root := &describeCmd{}
 	cmd := &cobra.Command{
 		Use:           "describe [<name> | <paths...>]",
+		Aliases:       []string{"desc"},
 		Short:         "Fetch and store repository descriptions",
 		SilenceUsage:  true,
 		SilenceErrors: true,

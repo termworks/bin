@@ -22,7 +22,7 @@ func newEnsureCmd() *ensureCmd {
 	// nolint: dupl
 	cmd := &cobra.Command{
 		Use:           "ensure [binary_path]...",
-		Aliases:       []string{"e"},
+		Aliases:       []string{"e", "sync"},
 		Short:         "Ensures that all binaries listed in the configuration are present",
 		SilenceUsage:  true,
 		SilenceErrors: true,

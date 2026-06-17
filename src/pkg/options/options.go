@@ -2,8 +2,8 @@ package options
 
 import (
 	"fmt"
-	"io"
-	"strconv"
+
+	"github.com/bresilla/bin/src/pkg/ui"
 )
 
 type LiteralStringer string
@@ -12,79 +12,41 @@ func (l LiteralStringer) String() string {
 	return string(l)
 }
 
-// Select prompts the user which
-// of the available options is the desired
-// through STDIN and returns the selected one
+// Select prompts the user to choose one of the available options and returns
+// the selected one.
 func Select(msg string, opts []fmt.Stringer) (interface{}, error) {
 	if len(opts) == 1 {
 		return opts[0], nil
 	}
-	fmt.Printf("\n%s\n", msg)
+	items := make([]string, len(opts))
 	for i, o := range opts {
-		fmt.Printf("\n [%d] %s", i+1, o)
+		items[i] = o.String()
 	}
-
-	var opt uint
-	var err error
-	for {
-		fmt.Printf("\n Select an option: ")
-		_, err = fmt.Scanln(&opt)
-		if err != nil || opt < 1 || int(opt) > len(opts) {
-			if err != nil {
-				if err == io.EOF {
-					return nil, err
-				}
-			}
-			fmt.Printf("Invalid option")
-			continue
-		}
-		break
-
+	idx, err := ui.SelectOne(msg, items)
+	if err != nil {
+		return nil, err
 	}
-
-	return opts[opt-1], nil
+	return opts[idx], nil
 }
 
-// SelectCustom prompts the user which
-// of the available options is the desired
-// through STDIN and returns the selected or a custom one
+// SelectCustom prompts the user to choose one of the available options or type
+// a custom value, returning the selected option or a LiteralStringer.
 func SelectCustom(msg string, opts []fmt.Stringer) (interface{}, error) {
 	if len(opts) == 1 {
 		return opts[0], nil
 	}
-	fmt.Printf("\n%s\n", msg)
+	items := make([]string, len(opts))
 	for i, o := range opts {
-		fmt.Printf("\n [%d] %s", i+1, o)
+		items[i] = o.String()
 	}
-
-	var opt string
-	var v int
-	var err error
-	for {
-		fmt.Printf("\n Select an option or type a custom value: ")
-		_, err = fmt.Scanln(&opt)
-
-		if err != nil {
-			return nil, err
-		}
-
-		v, err = strconv.Atoi(opt)
-		if err != nil {
-			return LiteralStringer(opt), nil
-		}
-
-		if err != nil || v < 1 || v > len(opts) {
-			if err != nil {
-				if err == io.EOF {
-					return nil, err
-				}
-			}
-			fmt.Printf("Invalid option")
-			continue
-		}
-		break
-
+	v, err := ui.SelectOrInput(msg, items)
+	if err != nil {
+		return nil, err
 	}
-
-	return opts[v-1], nil
+	for i, it := range items {
+		if it == v {
+			return opts[i], nil
+		}
+	}
+	return LiteralStringer(v), nil
 }

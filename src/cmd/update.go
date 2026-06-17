@@ -7,7 +7,6 @@ import (
 	"github.com/bresilla/bin/src/pkg/config"
 	"github.com/bresilla/bin/src/pkg/prompt"
 	"github.com/bresilla/bin/src/pkg/providers"
-	"github.com/bresilla/bin/src/pkg/ui"
 	"github.com/caarlos0/log"
 	"github.com/fatih/color"
 	"github.com/hashicorp/go-version"
@@ -35,12 +34,11 @@ func newUpdateCmd() *updateCmd {
 	// nolint: dupl
 	cmd := &cobra.Command{
 		Use:           "update [binary_path]",
-		Aliases:       []string{"u"},
+		Aliases:       []string{"u", "up", "upgrade"},
 		Short:         "Updates one or multiple binaries managed by bin",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("\n%s\n\n", ui.Banner(" update "))
 			// TODO add support to update from a specific URL.
 			// This allows to update binares from a repo that contains
 			// multiple tags for different binaries

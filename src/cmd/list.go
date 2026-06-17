@@ -20,7 +20,7 @@ func newListCmd() *listCmd {
 	// nolint: dupl
 	cmd := &cobra.Command{
 		Use:           "list",
-		Aliases:       []string{"ls"},
+		Aliases:       []string{"ls", "l"},
 		Short:         "List binaries managed by bin",
 		SilenceUsage:  true,
 		SilenceErrors: true,

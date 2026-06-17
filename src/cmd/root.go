@@ -166,9 +166,40 @@ func newRootCmd(version string, exit func(int)) *rootCmd {
 		newTuiCmd().cmd,
 	)
 
+	cobra.AddTemplateFunc("hdr", func(s string) string { return ui.AccentStyle.Render(s) })
+	cobra.AddTemplateFunc("cmdName", func(s string) string { return ui.TagStyle.Render(s) })
+	cobra.AddTemplateFunc("muted", func(s string) string { return ui.MutedStyle.Render(s) })
+	cmd.SetUsageTemplate(usageTemplate)
+
 	root.cmd = cmd
 	return root
 }
+
+// usageTemplate is a colorized version of cobra's default usage template.
+const usageTemplate = `{{hdr "Usage:"}}{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+{{hdr "Aliases:"}}
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+{{hdr "Examples:"}}
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
+
+{{hdr "Available Commands:"}}{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding | cmdName}} {{.Short | muted}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+{{hdr "Flags:"}}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+{{hdr "Global Flags:"}}
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+
+{{hdr "Additional help topics:"}}{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .CommandPath .CommandPathPadding | cmdName}} {{.Short | muted}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+{{muted "Use"}} "{{.CommandPath}} [command] --help" {{muted "for more information about a command."}}{{end}}
+`
 
 // isInteractive reports whether we're attached to a real terminal on both
 // stdin and stdout, so it's safe to launch the full-screen TUI.
