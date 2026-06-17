@@ -189,3 +189,9 @@ make verify     # fmt-check + vet + test
 make release TYPE=minor   # cut a release via git-rel
 make help       # list all targets
 ```
+
+## License & credits
+
+MIT — see [LICENSE](./LICENSE). `bin` is a hard fork of
+[marcosnils/bin](https://github.com/marcosnils/bin); see
+[ACKNOWLEDGMENTS.md](./ACKNOWLEDGMENTS.md).
