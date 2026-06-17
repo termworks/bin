@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.8] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Improve progress bar alignment and readability
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Add license, acknowledgments, and README updates
+
 ## [0.1.7] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features
