@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.12] - 2026-06-17
+
+### <!-- 0 -->⛰️  Features
+
+- Prioritize archive types based on OS
+
 ## [0.1.10] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features
