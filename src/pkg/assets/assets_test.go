@@ -333,3 +333,18 @@ func TestPreferArchiveType(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoPickPrefersMusl(t *testing.T) {
+	m := []*FilteredAsset{
+		{Name: "eza_x86_64-unknown-linux-gnu.tar.gz"},
+		{Name: "eza_x86_64-unknown-linux-musl.tar.gz"},
+	}
+	if got := autoPick(m).Name; got != "eza_x86_64-unknown-linux-musl.tar.gz" {
+		t.Fatalf("autoPick should prefer musl, got %s", got)
+	}
+	// glibc vs static -> static wins over gnu
+	m2 := []*FilteredAsset{{Name: "tool-linux-gnu"}, {Name: "tool-linux-static"}}
+	if got := autoPick(m2).Name; got != "tool-linux-static" {
+		t.Fatalf("autoPick should prefer static over gnu, got %s", got)
+	}
+}

@@ -114,6 +114,10 @@ type FilterOpts struct {
 	// NonInteractive makes asset selection fail instead of prompting when it
 	// can't decide on its own. Used by the TUI, which owns the terminal.
 	NonInteractive bool
+
+	// Auto makes selection pick the best candidate automatically (preferring
+	// musl over glibc/gnu) instead of prompting. Used by `bin ensure`.
+	Auto bool
 }
 
 type runtimeResolver struct{}
@@ -222,6 +226,35 @@ func isAllDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// rankAsset scores a candidate for automatic selection: musl is preferred over
+// a static/neutral build, which is preferred over glibc/gnu.
+func rankAsset(name string) int {
+	n := strings.ToLower(name)
+	switch {
+	case strings.Contains(n, "musl"):
+		return 2
+	case strings.Contains(n, "gnu"), strings.Contains(n, "glibc"):
+		return 0
+	default:
+		return 1
+	}
+}
+
+// autoPick chooses the best match without prompting: highest rank, ties broken
+// by name for determinism.
+func autoPick(matches []*FilteredAsset) *FilteredAsset {
+	best := matches[0]
+	for _, m := range matches[1:] {
+		switch r, br := rankAsset(m.Name), rankAsset(best.Name); {
+		case r > br:
+			best = m
+		case r == br && m.Name < best.Name:
+			best = m
+		}
+	}
+	return best
 }
 
 var tarSuffixes = []string{".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tbz", ".tar"}
@@ -435,6 +468,12 @@ func (f *Filter) FilterAssets(repoName string, as []*Asset) (*FilteredAsset, err
 		sort.SliceStable(generic, func(i, j int) bool {
 			return generic[i].String() < generic[j].String()
 		})
+
+		// Auto mode (e.g. `bin ensure` without --choose): pick the best match
+		// without prompting, preferring musl over glibc/gnu.
+		if f.opts.Auto {
+			return autoPick(matches), nil
+		}
 
 		if f.opts.NonInteractive {
 			return nil, fmt.Errorf("multiple matching assets and running non-interactively; run `bin update -r %s` to choose", repoName)

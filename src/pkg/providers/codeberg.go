@@ -50,7 +50,7 @@ func (c *codeberg) Fetch(opts *FetchOpts) (*File, error) {
 	for _, a := range release.Attachments {
 		candidates = append(candidates, &assets.Asset{Name: a.Name, URL: a.DownloadURL})
 	}
-	f := assets.NewFilter(&assets.FilterOpts{SkipScoring: opts.All, PackagePath: opts.PackagePath, PackageFingerprint: opts.PackageFingerprint, SkipPathCheck: opts.SkipPatchCheck, PackageName: opts.PackageName, SelectedAsset: opts.SelectedAsset, AssetFingerprint: opts.AssetFingerprint, Recheck: opts.Recheck, NonInteractive: opts.NonInteractive})
+	f := assets.NewFilter(&assets.FilterOpts{SkipScoring: opts.All, PackagePath: opts.PackagePath, PackageFingerprint: opts.PackageFingerprint, SkipPathCheck: opts.SkipPatchCheck, PackageName: opts.PackageName, SelectedAsset: opts.SelectedAsset, AssetFingerprint: opts.AssetFingerprint, Recheck: opts.Recheck, NonInteractive: opts.NonInteractive, Auto: opts.Auto})
 
 	gf, err := f.SelectReleaseAsset(c.repo, candidates)
 	if err != nil {
