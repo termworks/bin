@@ -34,10 +34,10 @@ func (g *gitHub) Fetch(opts *FetchOpts) (*File, error) {
 			// this is used by for the `ensure` command
 			g.tag = opts.Version
 		}
-		log.Infof("Getting %s release for %s/%s", g.tag, g.owner, g.repo)
+		log.Debugf("Getting %s release for %s/%s", g.tag, g.owner, g.repo)
 		release, _, err = g.client.Repositories.GetReleaseByTag(context.TODO(), g.owner, g.repo, g.tag)
 	} else {
-		log.Infof("Getting latest release for %s/%s", g.owner, g.repo)
+		log.Debugf("Getting latest release for %s/%s", g.owner, g.repo)
 		release, resp, err = g.client.Repositories.GetLatestRelease(context.TODO(), g.owner, g.repo)
 		if resp.StatusCode == http.StatusNotFound {
 			err = fmt.Errorf("repository %s/%s does not have releases", g.owner, g.repo)

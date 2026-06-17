@@ -100,7 +100,7 @@ func newInstallCmd() *installCmd {
 				return err
 			}
 
-			log.Infof("Done installing %s %s", pResult.Name, pResult.Version)
+			stepDone("installed", pResult.Name, pResult.Version)
 
 			return nil
 		},
@@ -163,7 +163,7 @@ func saveToDisk(f *providers.File, path string, overwrite bool) ([]byte, error) 
 
 	tr := io.TeeReader(f.Data, h)
 
-	log.Infof("Copying for %s@%s into %s", f.Name, f.Version, epath)
+	log.Debugf("Copying for %s@%s into %s", f.Name, f.Version, epath)
 	_, err = io.Copy(file, tr)
 	if err != nil {
 		return nil, err

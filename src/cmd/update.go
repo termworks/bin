@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/bresilla/bin/src/pkg/config"
 	"github.com/bresilla/bin/src/pkg/prompt"
@@ -120,6 +121,9 @@ func newUpdateCmd() *updateCmd {
 			// use the same code in both places
 			for ui, b := range toUpdate {
 
+				sep()
+				stepHeader(filepath.Base(os.ExpandEnv(b.Path)), "updating · "+repoShort(b.URL))
+
 				p, err := providers.New(ui.url, b.Provider)
 				if err != nil {
 					return err
@@ -157,8 +161,9 @@ func newUpdateCmd() *updateCmd {
 					return err
 				}
 
-				log.Infof("Done updating %s to %s", os.ExpandEnv(b.Path), color.GreenString(ui.version))
+				stepDone("updated", filepath.Base(os.ExpandEnv(b.Path)), ui.version)
 			}
+			sep()
 			for _, err := range updateFailures {
 				log.Warnf("%v", err)
 			}

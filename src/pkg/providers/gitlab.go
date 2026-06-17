@@ -38,11 +38,11 @@ func (g *gitLab) Fetch(opts *FetchOpts) (*File, error) {
 			// this is used by for the `ensure` command
 			g.tag = opts.Version
 		}
-		log.Infof("Getting %s release for %s/%s", g.tag, g.owner, g.repo)
+		log.Debugf("Getting %s release for %s/%s", g.tag, g.owner, g.repo)
 		release, _, err = g.client.Releases.GetRelease(projectPath, g.tag)
 	} else {
 		// TODO: handle case when repo doesn't have releases?
-		log.Infof("Getting latest release for %s/%s", g.owner, g.repo)
+		log.Debugf("Getting latest release for %s/%s", g.owner, g.repo)
 		var name string
 		name, _, err = g.GetLatestVersion()
 		if err != nil {

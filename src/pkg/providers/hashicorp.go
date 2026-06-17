@@ -80,7 +80,7 @@ func (g *hashiCorp) Fetch(opts *FetchOpts) (*File, error) {
 			// this is used by for the `ensure` command
 			g.tag = opts.Version
 		}
-		log.Infof("Getting %s release for %s", g.tag, g.repo)
+		log.Debugf("Getting %s release for %s", g.tag, g.repo)
 		release, err = g.getRelease(g.repo, g.tag)
 	} else {
 		var version string

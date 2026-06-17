@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/bresilla/bin/src/pkg/config"
 	"github.com/bresilla/bin/src/pkg/providers"
+	"github.com/bresilla/bin/src/pkg/ui"
 	"github.com/caarlos0/log"
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -46,10 +47,12 @@ func newEnsureCmd() *ensureCmd {
 			// TODO: code smell here, this pretty much does
 			// the same thing as install logic. Refactor to
 			// use the same code in both places
+			ensured := 0
 			for _, binCfg := range binsToProcess {
 				ep := os.ExpandEnv(binCfg.Path)
 				_, err := os.Stat(ep)
 
+				reason := "missing, installing"
 				if err == nil {
 					f, err := os.Open(ep)
 					if err != nil {
@@ -60,16 +63,18 @@ func newEnsureCmd() *ensureCmd {
 					if _, err := io.Copy(h, f); err != nil {
 						return err
 					}
+					f.Close()
 
 					if fmt.Sprintf("%x", h.Sum(nil)) == binCfg.Hash {
 						continue
 					}
-
-					log.Infof("%s hash does not match with config's, re-installing", ep)
-
+					reason = "hash mismatch, reinstalling"
 				} else if !os.IsNotExist(err) {
 					continue
 				}
+
+				sep()
+				stepHeader(filepath.Base(ep), reason+" · "+ui.RepoShort(binCfg.URL))
 
 				p, err := providers.New(binCfg.URL, binCfg.Provider)
 				if err != nil {
@@ -101,7 +106,14 @@ func newEnsureCmd() *ensureCmd {
 				if err != nil {
 					return err
 				}
-				log.Infof("Done ensuring %s to %s", os.ExpandEnv(binCfg.Path), color.GreenString(pResult.Version))
+				stepDone("ensured", filepath.Base(ep), pResult.Version)
+				ensured++
+			}
+
+			if ensured == 0 {
+				log.Info("All binaries present and up to date")
+			} else {
+				sep()
 			}
 			return nil
 		},

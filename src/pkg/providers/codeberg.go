@@ -32,10 +32,10 @@ func (c *codeberg) Fetch(opts *FetchOpts) (*File, error) {
 			// this is used by for the `ensure` command
 			c.tag = opts.Version
 		}
-		log.Infof("Getting %s release for %s/%s", c.tag, c.owner, c.repo)
+		log.Debugf("Getting %s release for %s/%s", c.tag, c.owner, c.repo)
 		release, _, err = c.client.GetReleaseByTag(c.owner, c.repo, c.tag)
 	} else {
-		log.Infof("Getting latest release for %s/%s", c.owner, c.repo)
+		log.Debugf("Getting latest release for %s/%s", c.owner, c.repo)
 		release, resp, err = c.client.GetLatestRelease(c.owner, c.repo)
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			err = fmt.Errorf("repository %s/%s does not have releases", c.owner, c.repo)

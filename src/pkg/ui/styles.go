@@ -150,6 +150,14 @@ func LoadTheme(path string) error {
 // Banner renders a small highlighted title chip.
 func Banner(s string) string { return TitleStyle.Render(s) }
 
+// Rule renders a full-width horizontal separator line.
+func Rule() string {
+	return MutedStyle.Render(strings.Repeat("─", TerminalWidth()))
+}
+
+// RepoShort strips the scheme from a repo URL (e.g. github.com/owner/repo).
+func RepoShort(u string) string { return repoShortURL(u) }
+
 // Tags renders a list of tags as cyan chips.
 func Tags(tags []string) string {
 	out := make([]string, 0, len(tags))

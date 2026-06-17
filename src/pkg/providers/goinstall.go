@@ -61,9 +61,9 @@ func (g *goinstall) Fetch(opts *FetchOpts) (*File, error) {
 			// this is used by for the `ensure` command
 			g.tag = opts.Version
 		}
-		log.Infof("Getting %s release for %s", g.tag, g.repo)
+		log.Debugf("Getting %s release for %s", g.tag, g.repo)
 	} else {
-		log.Infof("Getting latest release for %s", g.repo)
+		log.Debugf("Getting latest release for %s", g.repo)
 		if name, _, err := g.GetLatestVersion(); err != nil {
 			return nil, fmt.Errorf("failed to get latest version: %w", err)
 		} else {
