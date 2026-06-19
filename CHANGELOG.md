@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.17] - 2026-06-19
+
+### <!-- 0 -->⛰️  Features
+
+- Prefer binaries over AppImages in asset filtering
+
 ## [0.1.16] - 2026-06-17
 
 ### <!-- 0 -->⛰️  Features
