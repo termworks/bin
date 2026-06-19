@@ -11,7 +11,7 @@ import (
 
 // nolint: gochecknoglobals
 var (
-	version = "0.1.17"
+	version = "0.1.18"
 	commit  = ""
 	date    = ""
 	builtBy = ""

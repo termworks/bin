@@ -243,6 +243,67 @@ func SelectOrInput(title string, items []string) (string, error) {
 	return fm.result, nil
 }
 
+// ---- free-text prompt with a default ----
+
+type askModel struct {
+	prompt string
+	ti     textinput.Model
+	done   bool
+	cancel bool
+}
+
+func (m askModel) Init() tea.Cmd { return textinput.Blink }
+
+func (m askModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "enter":
+			m.done = true
+			return m, tea.Quit
+		case "ctrl+c", "esc":
+			m.cancel = true
+			return m, tea.Quit
+		}
+	}
+	var c tea.Cmd
+	m.ti, c = m.ti.Update(msg)
+	return m, c
+}
+
+func (m askModel) View() string {
+	if m.done {
+		return "  " + OKStyle.Render("✓ ") + m.ti.Value() + "\n"
+	}
+	return AccentStyle.Render(m.prompt) + " " + m.ti.View() + "\n" +
+		MutedStyle.Render("enter to confirm · esc to cancel")
+}
+
+// AskString prompts for a line of text pre-filled with def. On a non-terminal
+// it returns def unchanged.
+func AskString(prompt, def string) (string, error) {
+	if !interactive() {
+		return def, nil
+	}
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.SetValue(def)
+	ti.CursorEnd()
+	ti.Focus()
+	res, err := tea.NewProgram(askModel{prompt: prompt, ti: ti}).Run()
+	if err != nil {
+		return "", err
+	}
+	m := res.(askModel)
+	if m.cancel {
+		return "", fmt.Errorf("cancelled")
+	}
+	v := strings.TrimSpace(m.ti.Value())
+	if v == "" {
+		v = def
+	}
+	return v, nil
+}
+
 // ---- yes/no confirm ----
 
 type confirmModel struct {

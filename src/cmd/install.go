@@ -11,9 +11,26 @@ import (
 	"github.com/bresilla/bin/src/pkg/assets"
 	"github.com/bresilla/bin/src/pkg/config"
 	"github.com/bresilla/bin/src/pkg/providers"
+	"github.com/bresilla/bin/src/pkg/ui"
 	"github.com/caarlos0/log"
 	"github.com/spf13/cobra"
 )
+
+// defaultBinName guesses a binary name from an install URL — the repository
+// name (e.g. "github.com/pythops/impala" -> "impala").
+func defaultBinName(raw string) string {
+	s := raw
+	for _, p := range []string{"https://", "http://", "docker://", "goinstall://"} {
+		s = strings.TrimPrefix(s, p)
+	}
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "/"), ".git")
+	parts := strings.Split(s, "/")
+	name := parts[len(parts)-1]
+	if name == "" {
+		return "bin"
+	}
+	return name
+}
 
 type installCmd struct {
 	cmd  *cobra.Command
@@ -48,7 +65,14 @@ func newInstallCmd() *installCmd {
 				}
 
 			} else {
-				resolvedPath = defaultPath
+				// Ask what to name the binary, defaulting to the repo name
+				// (so "github.com/pythops/impala" installs as "impala", not the
+				// mangled asset name).
+				name, err := ui.AskString("Install as:", defaultBinName(u))
+				if err != nil {
+					return err
+				}
+				resolvedPath = filepath.Join(defaultPath, name)
 			}
 
 			// TODO check if binary already exists in config
@@ -108,7 +132,7 @@ func newInstallCmd() *installCmd {
 				return err
 			}
 
-			stepDone("installed", pResult.Name, pResult.Version)
+			stepDone("installed", os.ExpandEnv(resolvedPath), pResult.Version)
 
 			return nil
 		},

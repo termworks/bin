@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.18] - 2026-06-19
+
+### <!-- 0 -->⛰️  Features
+
+- Add interactive binary naming during install
+
 ## [0.1.17] - 2026-06-19
 
 ### <!-- 0 -->⛰️  Features
