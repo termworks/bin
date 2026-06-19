@@ -243,6 +243,7 @@ type tuiModel struct {
 	busy      int
 	confirm   bool
 	confirmTo string
+	confirmYes bool
 
 	width, height int
 
@@ -454,27 +455,26 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEditKey(msg)
 	}
 
-	// Delete confirmation captures input first.
+	// Delete confirmation dialog captures input first.
 	if m.confirm {
 		switch msg.String() {
+		case "left", "right", "h", "l", "tab":
+			m.confirmYes = !m.confirmYes
+			return m, nil
 		case "y", "Y":
-			path := m.confirmTo
+			m.confirmYes = true
+			return m.doRemove()
+		case "n", "N", "esc":
 			m.confirm, m.confirmTo = false, ""
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				return m, m.list.NewStatusMessage(ui.ErrStyle.Render("remove failed: " + err.Error()))
+			return m, m.list.NewStatusMessage("remove cancelled")
+		case "enter":
+			if m.confirmYes {
+				return m.doRemove()
 			}
-			for k, b := range config.Get().Bins {
-				if b != nil && os.ExpandEnv(b.Path) == path {
-					_ = config.RemoveBinaries([]string{k})
-					break
-				}
-			}
-			m.rebuildRows()
-			return m, m.list.NewStatusMessage("removed " + filepath.Base(path))
-		default:
 			m.confirm, m.confirmTo = false, ""
 			return m, m.list.NewStatusMessage("remove cancelled")
 		}
+		return m, nil
 	}
 
 	// While typing a filter, the list owns all keys.
@@ -523,7 +523,7 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r := m.selectedRow(); r != nil {
 			m.confirm = true
 			m.confirmTo = r.path
-			return m, m.list.NewStatusMessage(ui.WarnStyle.Render("remove " + filepath.Base(r.path) + "? (y/n)"))
+			m.confirmYes = false
 		}
 		return m, nil
 
@@ -564,11 +564,40 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, c
 }
 
-func (m tuiModel) View() string {
-	if m.editing {
-		return m.editView()
+// doRemove deletes the binary currently pending confirmation.
+func (m tuiModel) doRemove() (tea.Model, tea.Cmd) {
+	path := m.confirmTo
+	m.confirm, m.confirmTo = false, ""
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return m, m.list.NewStatusMessage(ui.ErrStyle.Render("remove failed: " + err.Error()))
 	}
-	return m.app.Render(m.list.View())
+	for k, b := range config.Get().Bins {
+		if b != nil && os.ExpandEnv(b.Path) == path {
+			_ = config.RemoveBinaries([]string{k})
+			break
+		}
+	}
+	m.rebuildRows()
+	return m, m.list.NewStatusMessage("removed " + filepath.Base(path))
+}
+
+func (m tuiModel) View() string {
+	base := m.app.Render(m.list.View())
+	switch {
+	case m.editing:
+		return ui.Overlay(ui.Dim(base), m.editDialog())
+	case m.confirm:
+		return ui.Overlay(ui.Dim(base), m.confirmDialog())
+	}
+	return base
+}
+
+func (m tuiModel) confirmDialog() string {
+	name := filepath.Base(m.confirmTo)
+	body := ui.MutedStyle.Render("Remove ") + ui.AccentStyle.Render(name) +
+		ui.MutedStyle.Render(" and forget it?") + "\n\n" +
+		"  " + ui.Button("Yes", m.confirmYes) + "   " + ui.Button("No", !m.confirmYes)
+	return ui.Dialog("Remove binary", body, "←/→ choose · y/n · enter")
 }
 
 // ---- edit popup ----
@@ -659,35 +688,24 @@ func (m tuiModel) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, c
 }
 
-func (m tuiModel) editView() string {
+func (m tuiModel) editDialog() string {
 	var b strings.Builder
-	b.WriteString(ui.AccentStyle.Render("Edit ") + ui.TitleStyle.Render(" "+filepath.Base(m.editRow.path)+" ") + "\n\n")
 	for i := range m.inputs {
 		label := "  " + ui.MutedStyle.Render(m.editLabels[i])
 		if i == m.editFocus {
 			label = ui.AccentStyle.Render("▸ " + m.editLabels[i])
 		}
 		field := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
-			BorderForeground(ui.ColorMuted).Padding(0, 1).Width(64)
+			BorderForeground(ui.ColorMuted).Padding(0, 1).Width(56)
 		if i == m.editFocus {
 			field = field.BorderForeground(ui.ColorPrimary)
 		}
-		b.WriteString(label + "\n" + field.Render(m.inputs[i].View()) + "\n")
+		b.WriteString(label + "\n" + field.Render(m.inputs[i].View()))
+		if i < len(m.inputs)-1 {
+			b.WriteString("\n")
+		}
 	}
-	b.WriteString("\n" + ui.MutedStyle.Render("tab/↑↓ move · enter save · esc cancel"))
-
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
-		BorderForeground(ui.ColorPrimary).Padding(1, 2)
-	popup := box.Render(b.String())
-
-	w, h := m.width, m.height
-	if w == 0 {
-		w = 80
-	}
-	if h == 0 {
-		h = 24
-	}
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, popup)
+	return ui.Dialog("Edit  "+filepath.Base(m.editRow.path), b.String(), "tab/↑↓ move · enter save · esc cancel")
 }
 
 func valOr(s string) string {
