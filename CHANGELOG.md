@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.19] - 2026-06-19
+
+### <!-- 0 -->⛰️  Features
+
+- Add overlay system for TUI modals
+
 ## [0.1.18] - 2026-06-19
 
 ### <!-- 0 -->⛰️  Features
