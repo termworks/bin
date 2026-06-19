@@ -459,9 +459,6 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 	for _, arch := range resolver.GetArch() {
 		scores[arch] = 5
 	}
-	for _, osSpecificExtension := range resolver.GetOSSpecificExtensions() {
-		scores[osSpecificExtension] = 15
-	}
 	for key := range scores {
 		scoreKeys = append(scoreKeys, strings.ToLower(key))
 	}
@@ -494,6 +491,27 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 		if matches[i].score < highest {
 			matches = append(matches[:i], matches[i+1:]...)
 		}
+	}
+
+	// AppImage is a GUI-app fallback; if a regular binary/archive scored just
+	// as high, drop the AppImage(s) so the CLI build is preferred. AppImage-only
+	// releases keep their AppImage (nothing else to fall back to).
+	isAppImage := func(n string) bool { return strings.HasSuffix(strings.ToLower(n), ".appimage") }
+	hasOther := false
+	for _, m := range matches {
+		if !isAppImage(m.Name) {
+			hasOther = true
+			break
+		}
+	}
+	if hasOther {
+		kept := make([]*FilteredAsset, 0, len(matches))
+		for _, m := range matches {
+			if !isAppImage(m.Name) {
+				kept = append(kept, m)
+			}
+		}
+		matches = kept
 	}
 	return matches
 }

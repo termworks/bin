@@ -120,20 +120,6 @@ func TestFilterAssets(t *testing.T) {
 			{Name: "launchpad-linux-x64", URL: "https://github.com/Mirantis/launchpad/releases/download/1.2.0-rc.1/launchpad-linux-x64"},
 			{Name: "launchpad-win-x64.exe", URL: "https://github.com/Mirantis/launchpad/releases/download/1.2.0-rc.1/launchpad-win-x64.exe"},
 		}}, "launchpad-win-x64.exe", testWindowsAMDResolver},
-		{args{"Cura", []*Asset{
-			{Name: "Ultimaker_Cura-4.7.1-Darwin.dmg", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1-Darwin.dmg"},
-			{Name: "Ultimaker_Cura-4.7.1-win64.exe", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1-win64.exe"},
-			{Name: "Ultimaker_Cura-4.7.1-win64.msi", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1-win64.msi"},
-			{Name: "Ultimaker_Cura-4.7.1.AppImage", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1.AppImage"},
-			{Name: "Ultimaker_Cura-4.7.1.AppImage.asc", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1.AppImage.asc"},
-		}}, "Ultimaker_Cura-4.7.1.AppImage", testLinuxAMDResolver},
-		{args{"Cura", []*Asset{
-			{Name: "Ultimaker_Cura-4.7.1-Darwin.dmg", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1-Darwin.dmg"},
-			{Name: "Ultimaker_Cura-4.7.1-win64.exe", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1-win64.exe"},
-			{Name: "Ultimaker_Cura-4.7.1-win64.msi", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1-win64.msi"},
-			{Name: "Ultimaker_Cura-4.7.1.AppImage", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1.AppImage"},
-			{Name: "Ultimaker_Cura-4.7.1.AppImage.asc", URL: "https://github.com/Ultimaker/Cura/releases/download/4.7.1/Ultimaker_Cura-4.7.1.AppImage.asc"},
-		}}, "Ultimaker_Cura-4.7.1-win64.exe", testWindowsAMDResolver},
 		{args{"usql", []*Asset{
 			{Name: "usql-0.8.2-darwin-amd64.tar.bz2", URL: "https://github.com/xo/usql/releases/download/v0.8.2/usql-0.8.2-darwin-amd64.tar.bz2"},
 			{Name: "usql-0.8.2-linux-amd64.tar.bz2", URL: "https://github.com/xo/usql/releases/download/v0.8.2/usql-0.8.2-linux-amd64.tar.bz2"},
@@ -365,4 +351,33 @@ func names(as []*Asset) []string {
 		out[i] = a.Name
 	}
 	return out
+}
+
+func TestAppImageNotPreferredOverBinary(t *testing.T) {
+	resolver = testLinuxAMDResolver
+
+	// opencode ships a CLI tarball and a desktop GUI AppImage: never auto-pick
+	// the AppImage when a real binary is present.
+	chosen, opts := Preview("opencode", []string{
+		"opencode-desktop-linux-x86_64.AppImage",
+		"opencode-desktop-linux-amd64.deb",
+		"opencode-linux-x64.tar.gz",
+		"opencode-linux-x64-musl.tar.gz",
+	})
+	for _, n := range append(opts, chosen) {
+		if strings.HasSuffix(strings.ToLower(n), ".appimage") {
+			t.Fatalf("AppImage should not be offered when a binary exists; chosen=%q opts=%v", chosen, opts)
+		}
+	}
+
+	// AppImage-only release: the AppImage is still selected (nothing else).
+	chosen2, _ := Preview("cura", []string{
+		"Ultimaker_Cura-4.7.1-Darwin.dmg",
+		"Ultimaker_Cura-4.7.1-win64.exe",
+		"Ultimaker_Cura-4.7.1.AppImage",
+		"Ultimaker_Cura-4.7.1.AppImage.asc",
+	})
+	if !strings.HasSuffix(chosen2, ".AppImage") {
+		t.Fatalf("AppImage-only release should pick the AppImage, got %q", chosen2)
+	}
 }
