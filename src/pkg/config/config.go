@@ -498,6 +498,36 @@ func UpsertBinary(c *Binary) error {
 	return nil
 }
 
+// ForgetBinarySelection clears the remembered release-asset and inner-archive
+// choices for one binary while keeping its URL, tags, hash, version, pin state,
+// and installed path. The next install/ensure/update must select an asset again
+// instead of silently reusing a stale or wrong choice.
+func ForgetBinarySelection(path string) error {
+	b, ok := cfg.Bins[path]
+	if !ok {
+		expanded := os.ExpandEnv(path)
+		for k, candidate := range cfg.Bins {
+			if candidate != nil && os.ExpandEnv(candidate.Path) == expanded {
+				path = k
+				b = candidate
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok || b == nil {
+		return fmt.Errorf("binary path %s not found", path)
+	}
+
+	b.RemoteName = ""
+	b.PackagePath = ""
+	b.SelectedAsset = ""
+	b.AssetFingerprint = nil
+	b.PackageFingerprint = nil
+	cfg.Bins[path] = b
+	return writeAll()
+}
+
 // RemoveBinaries removes the specified paths
 // from bin configuration. It doesn't care about the order
 func RemoveBinaries(paths []string) error {
@@ -598,9 +628,22 @@ func writeState(statePath string) error {
 // one of darwin, freebsd, linux, and so on.
 func GetArch() []string {
 	res := []string{runtime.GOARCH}
-	if runtime.GOARCH == "amd64" {
+	switch runtime.GOARCH {
+	case "amd64":
 		res = append(res, "x86_64")
 		res = append(res, "x64")
+		res = append(res, "x86-64")
+		res = append(res, "intel_64")
+		res = append(res, "intel64")
+	case "arm64":
+		res = append(res, "aarch64")
+		res = append(res, "arm_64")
+		res = append(res, "arm-64")
+		res = append(res, "armv8")
+	case "386":
+		res = append(res, "i386")
+		res = append(res, "i686")
+		res = append(res, "x86")
 	}
 	return res
 }

@@ -118,6 +118,7 @@ Run `bin` (no args) to open the interactive UI: a full-width list with two-line 
 | `r` | check all for updates |
 | `p` | pin / unpin |
 | `e` | edit entry (URL, provider, tags, description) in a popup |
+| `m` | forget the saved asset/archive choice for the selected binary |
 | `o` | open the repository in your browser (`xdg-open`) |
 | `d` / `x` | remove (with confirmation) |
 | `t` | cycle the tag scope |

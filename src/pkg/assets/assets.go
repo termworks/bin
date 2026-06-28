@@ -165,6 +165,8 @@ func NewFilter(opts *FilterOpts) *Filter {
 // "64") so they can be collapsed when comparing asset names across releases.
 var assetVersionRe = regexp.MustCompile(`[0-9]+(\.[0-9]+)*`)
 
+var assetTokenRe = regexp.MustCompile(`[^a-z0-9]+`)
+
 // NormalizeAssetName lowercases an asset name and replaces version-like number
 // groups with a placeholder, so the same asset across different releases (which
 // only differ by version) compares equal.
@@ -219,12 +221,29 @@ var ignoredExts = map[string]bool{
 	"a": true, "o": true, "so": true, "dll": true, "dylib": true, "lib": true,
 }
 
+var ignoredNameSuffixes = []string{
+	"-update",
+	"_update",
+	".update",
+}
+
+var archAliasGroups = [][]string{
+	{"amd64", "x86_64", "x86-64", "x64", "intel_64", "intel64"},
+	{"arm64", "aarch64", "arm_64", "arm-64", "armv8"},
+	{"386", "i386", "i686", "x86"},
+}
+
 // isUsableAsset reports whether an asset could be something bin can install.
 // It keeps supported archives, OS-appropriate single files, and raw binaries
 // (which are often extensionless and contain dots from a version, e.g.
 // "tool-7.1.0-linux-amd64"), and rejects only known non-binary file types.
 func isUsableAsset(name string) bool {
 	n := strings.ToLower(name)
+	for _, s := range ignoredNameSuffixes {
+		if strings.HasSuffix(n, s) {
+			return false
+		}
+	}
 
 	// Supported archives are always fine.
 	for _, s := range installableSuffixes {
@@ -250,6 +269,84 @@ func isUsableAsset(name string) bool {
 	// Everything else — raw binaries (extensionless or with a dotted version)
 	// and unknown formats — is kept; scoring decides the best match.
 	return true
+}
+
+func archAliasSet(aliases []string) map[string]bool {
+	out := make(map[string]bool, len(aliases))
+	for _, a := range aliases {
+		out[strings.ToLower(a)] = true
+	}
+	return out
+}
+
+func currentArchGroup() []string {
+	current := archAliasSet(resolver.GetArch())
+	for _, group := range archAliasGroups {
+		for _, alias := range group {
+			if current[strings.ToLower(alias)] {
+				return group
+			}
+		}
+	}
+	return resolver.GetArch()
+}
+
+func containsArchAlias(name string, aliases []string) bool {
+	n := strings.ToLower(name)
+	for _, alias := range aliases {
+		if strings.Contains(n, strings.ToLower(alias)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNativeArch(name string) bool {
+	return containsArchAlias(name, currentArchGroup())
+}
+
+func hasForeignArch(name string) bool {
+	native := archAliasSet(currentArchGroup())
+	for _, group := range archAliasGroups {
+		isNativeGroup := false
+		for _, alias := range group {
+			if native[strings.ToLower(alias)] {
+				isNativeGroup = true
+				break
+			}
+		}
+		if isNativeGroup {
+			continue
+		}
+		if containsArchAlias(name, group) {
+			return true
+		}
+	}
+	return false
+}
+
+// preferNativeArch drops obvious foreign-architecture assets once at least one
+// native-architecture asset is present. If a release has no native match, keep
+// the original set so the user can still choose manually.
+func preferNativeArch(as []*Asset) []*Asset {
+	hasNative := false
+	for _, a := range as {
+		if hasNativeArch(a.Name) {
+			hasNative = true
+			break
+		}
+	}
+	if !hasNative {
+		return as
+	}
+
+	out := make([]*Asset, 0, len(as))
+	for _, a := range as {
+		if hasNativeArch(a.Name) || !hasForeignArch(a.Name) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // preferMusl collapses assets that are identical except for their libc flavor
@@ -379,6 +476,7 @@ func Preview(repoName string, names []string) (chosen string, options []string) 
 	}
 	usable = preferArchiveType(usable)
 	usable = preferMusl(usable)
+	usable = preferNativeArch(usable)
 
 	f := &Filter{opts: &FilterOpts{}}
 	matches := f.scoredMatches(repoName, usable)
@@ -418,6 +516,7 @@ func (f *Filter) SelectReleaseAsset(repoName string, as []*Asset) (*FilteredAsse
 	}
 	usable = preferArchiveType(usable)
 	usable = preferMusl(usable)
+	usable = preferNativeArch(usable)
 
 	fp := Fingerprint(usable)
 
@@ -468,7 +567,9 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 
 	scores := map[string]int{}
 	scoreKeys := []string{}
-	scores[repoName] = 1
+	if repoName != "" {
+		scores[repoName] = 1
+	}
 	for _, os := range resolver.GetOS() {
 		scores[os] = 10
 	}
@@ -508,6 +609,7 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 			matches = append(matches[:i], matches[i+1:]...)
 		}
 	}
+	matches = preferPackageName(matches, f.opts.PackageName)
 
 	// AppImage is a GUI-app fallback; if a regular binary/archive scored just
 	// as high, drop the AppImage(s) so the CLI build is preferred. AppImage-only
@@ -530,6 +632,99 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 		matches = kept
 	}
 	return matches
+}
+
+func preferPackageName(matches []*FilteredAsset, packageName string) []*FilteredAsset {
+	best := 0
+	for _, m := range matches {
+		if rank := packageNameRank(m.Name, packageName); rank > best {
+			best = rank
+		}
+	}
+	if best == 0 {
+		return matches
+	}
+
+	out := make([]*FilteredAsset, 0, len(matches))
+	for _, m := range matches {
+		if packageNameRank(m.Name, packageName) == best {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func packageNameRank(assetName, packageName string) int {
+	nameTokens := assetTokens(assetName)
+	packageTokens := assetTokens(packageName)
+	if len(packageTokens) == 0 || len(nameTokens) < len(packageTokens) {
+		return 0
+	}
+
+	for i := 0; i <= len(nameTokens)-len(packageTokens); i++ {
+		if !tokensEqual(nameTokens[i:i+len(packageTokens)], packageTokens) {
+			continue
+		}
+		if i == 0 {
+			if len(nameTokens) == len(packageTokens) || isPlatformOrVersionToken(nameTokens[len(packageTokens)]) {
+				return 3
+			}
+			return 2
+		}
+		return 1
+	}
+	return 0
+}
+
+func assetTokens(name string) []string {
+	n := strings.ToLower(name)
+	if stem, isTar, isZip := archiveStem(n); isTar || isZip {
+		n = stem
+	} else {
+		for _, s := range []string{".appimage", ".exe"} {
+			n = strings.TrimSuffix(n, s)
+		}
+	}
+
+	raw := assetTokenRe.Split(n, -1)
+	out := make([]string, 0, len(raw))
+	for _, token := range raw {
+		if token != "" {
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+func tokensEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isPlatformOrVersionToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	if assetVersionRe.MatchString(token) {
+		return true
+	}
+	switch token {
+	case "linux", "darwin", "macos", "osx", "windows", "win",
+		"freebsd", "openbsd", "netbsd", "dragonfly",
+		"unknown", "musl", "gnu", "glibc", "static",
+		"amd64", "x86", "x64", "intel", "arm64", "aarch64", "arm",
+		"386", "i386", "i686":
+		return true
+	default:
+		return false
+	}
 }
 
 // FilterAssets selects the proper asset, prompting the user when it can't
@@ -607,6 +802,7 @@ func SanitizeName(name, version string) string {
 
 // ProcessURL processes a FilteredAsset by uncompressing/unarchiving the URL of the asset.
 func (f *Filter) ProcessURL(gf *FilteredAsset) (*finalFile, error) {
+	f.repoName = gf.RepoName
 	f.name = gf.Name
 	// We're not closing the body here since the caller is in charge of that
 	req, err := http.NewRequest(http.MethodGet, gf.URL, nil)
@@ -884,7 +1080,7 @@ func (f *Filter) processZip(name string, r io.Reader) (*finalFile, error) {
 //
 // It records the current fingerprint on the Filter so it can be persisted.
 func (f *Filter) pickArchiveFile(name string, files map[string][]byte) (string, error) {
-	usable := installableCandidates(files)
+	usable := preferNativeArch(installableCandidates(files))
 	fp := Fingerprint(usable)
 	f.packageFingerprint = fp
 

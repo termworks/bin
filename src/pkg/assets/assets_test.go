@@ -31,6 +31,7 @@ func (m *mockOSResolver) GetOSSpecificExtensions() []string {
 
 var (
 	testLinuxAMDResolver   = &mockOSResolver{OS: []string{"linux"}, Arch: []string{"amd64", "x86_64", "x64", "64"}, OSSpecificExtensions: []string{"AppImage"}}
+	testLinuxARMResolver   = &mockOSResolver{OS: []string{"linux"}, Arch: []string{"arm64", "aarch64", "arm_64", "arm-64", "armv8"}, OSSpecificExtensions: []string{"AppImage"}}
 	testWindowsAMDResolver = &mockOSResolver{OS: []string{"windows", "win"}, Arch: []string{"amd64", "x86_64", "x64", "64"}, OSSpecificExtensions: []string{"exe"}}
 )
 
@@ -384,6 +385,92 @@ func TestAppImageNotPreferredOverBinary(t *testing.T) {
 	})
 	if !strings.HasSuffix(chosen2, ".AppImage") {
 		t.Fatalf("AppImage-only release should pick the AppImage, got %q", chosen2)
+	}
+}
+
+func TestARMAndX86ReleaseAssetSelection(t *testing.T) {
+	cases := []struct {
+		name     string
+		repoName string
+		resolver platformResolver
+		assets   []string
+		want     string
+	}{
+		{
+			name:     "pik arm picks aarch64",
+			repoName: "pik",
+			resolver: testLinuxARMResolver,
+			assets: []string{
+				"pik-1.0.0-aarch64-unknown-linux-gnu.tar.gz",
+				"pik-1.0.0-x86_64-unknown-linux-gnu.tar.gz",
+			},
+			want: "pik-1.0.0-aarch64-unknown-linux-gnu.tar.gz",
+		},
+		{
+			name:     "pik x86 picks x86_64",
+			repoName: "pik",
+			resolver: testLinuxAMDResolver,
+			assets: []string{
+				"pik-1.0.0-aarch64-unknown-linux-gnu.tar.gz",
+				"pik-1.0.0-x86_64-unknown-linux-gnu.tar.gz",
+			},
+			want: "pik-1.0.0-x86_64-unknown-linux-gnu.tar.gz",
+		},
+		{
+			name:     "git-town arm picks arm_64",
+			repoName: "git-town",
+			resolver: testLinuxARMResolver,
+			assets: []string{
+				"git-town_linux_arm_64.tar.gz",
+				"git-town_linux_intel_64.tar.gz",
+			},
+			want: "git-town_linux_arm_64.tar.gz",
+		},
+		{
+			name:     "git-town x86 picks intel_64",
+			repoName: "git-town",
+			resolver: testLinuxAMDResolver,
+			assets: []string{
+				"git-town_linux_arm_64.tar.gz",
+				"git-town_linux_intel_64.tar.gz",
+			},
+			want: "git-town_linux_intel_64.tar.gz",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resolver = c.resolver
+			got, opts := Preview(c.repoName, c.assets)
+			if got != c.want {
+				t.Fatalf("want %q, got %q, options=%v", c.want, got, opts)
+			}
+		})
+	}
+}
+
+func TestAtuinARMSelectionDropsUpdateServerAndX86Assets(t *testing.T) {
+	resolver = testLinuxARMResolver
+
+	names := []string{
+		"atuin-aarch64-unknown-linux-musl-update",
+		"atuin-aarch64-unknown-linux-musl.tar.gz",
+		"atuin-server-aarch64-unknown-linux-musl-update",
+		"atuin-server-aarch64-unknown-linux-musl.tar.gz",
+		"atuin-server-x86_64-unknown-linux-musl-update",
+		"atuin-server-x86_64-unknown-linux-musl.tar.gz",
+	}
+	as := make([]*Asset, 0, len(names))
+	for _, n := range names {
+		as = append(as, &Asset{Name: n})
+	}
+
+	gf, err := NewFilter(&FilterOpts{PackageName: "atuin", NonInteractive: true}).SelectReleaseAsset("atuin", as)
+	if err != nil {
+		t.Fatalf("unexpected selection error: %v", err)
+	}
+	if gf.Name != "atuin-aarch64-unknown-linux-musl.tar.gz" {
+		t.Fatalf("want atuin aarch64 tarball, got %q", gf.Name)
 	}
 }
 

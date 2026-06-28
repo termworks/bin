@@ -56,6 +56,7 @@ func newInstallCmd() *installCmd {
 		Args:          cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			u := args[0]
+			packageName := defaultBinName(u)
 			defaultPath := config.Get().DefaultPath
 
 			var resolvedPath string
@@ -69,7 +70,7 @@ func newInstallCmd() *installCmd {
 				// Ask what to name the binary, defaulting to the repo name
 				// (so "github.com/pythops/impala" installs as "impala", not the
 				// mangled asset name).
-				name, err := ui.AskString("Install as:", defaultBinName(u))
+				name, err := ui.AskString("Install as:", packageName)
 				if err != nil {
 					return err
 				}
@@ -85,7 +86,7 @@ func newInstallCmd() *installCmd {
 			}
 			log.Debugf("Using provider '%s' for '%s'", p.GetID(), u)
 
-			pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, CollectLibs: !root.opts.noPatch})
+			pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackageName: packageName, CollectLibs: !root.opts.noPatch})
 			if err != nil {
 				return err
 			}
