@@ -24,6 +24,7 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/h2non/filetype/matchers"
 	"github.com/h2non/filetype/types"
+	"github.com/klauspost/compress/zstd"
 	"github.com/krolaw/zipstream"
 	"github.com/xi2/xz"
 )
@@ -70,6 +71,17 @@ type finalFile struct {
 	Name               string
 	PackagePath        string
 	PackageFingerprint []string
+	// Sidecars holds shared libraries shipped alongside the chosen binary in the
+	// same archive (the binary's dependency closure), keyed by basename. Only
+	// populated when FilterOpts.CollectLibs is set.
+	Sidecars map[string]*Sidecar
+}
+
+// Sidecar is one shared library extracted from an archive: either a regular
+// file (Data set) or a symlink (Link set to the target's basename).
+type Sidecar struct {
+	Data []byte
+	Link string
 }
 
 type platformResolver interface {
@@ -84,6 +96,7 @@ type Filter struct {
 	name               string
 	packagePath        string
 	packageFingerprint []string
+	sidecars           map[string]*Sidecar
 }
 
 type FilterOpts struct {
@@ -114,6 +127,11 @@ type FilterOpts struct {
 	// NonInteractive makes asset selection fail instead of prompting when it
 	// can't decide on its own. Used by the TUI, which owns the terminal.
 	NonInteractive bool
+
+	// CollectLibs makes archive extraction also capture the chosen binary's
+	// shared-library dependency closure (sibling .so files in the same archive),
+	// so the caller can install them next to the binary and patch its RUNPATH.
+	CollectLibs bool
 }
 
 type runtimeResolver struct{}
@@ -146,6 +164,8 @@ func NewFilter(opts *FilterOpts) *Filter {
 // assetVersionRe matches version-like number groups (e.g. "0.140.0", "86",
 // "64") so they can be collapsed when comparing asset names across releases.
 var assetVersionRe = regexp.MustCompile(`[0-9]+(\.[0-9]+)*`)
+
+var assetTokenRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 // NormalizeAssetName lowercases an asset name and replaces version-like number
 // groups with a placeholder, so the same asset across different releases (which
@@ -183,7 +203,8 @@ var installableSuffixes = []string{
 	".tar.gz", ".tgz",
 	".tar.xz", ".txz",
 	".tar.bz2", ".tbz2", ".tbz",
-	".tar", ".zip", ".gz", ".xz", ".bz2",
+	".tar.zst", ".tzst",
+	".tar", ".zip", ".gz", ".xz", ".bz2", ".zst",
 }
 
 // ignoredExts are file extensions that are never installable binaries:
@@ -196,11 +217,20 @@ var ignoredExts = map[string]bool{
 	"json": true, "txt": true, "md": true, "yaml": true, "yml": true,
 	"deb": true, "rpm": true, "msi": true, "pkg": true, "dmg": true,
 	"apk": true, "snap": true, "flatpak": true, "whl": true,
-	// zstd isn't supported by the extractor, so don't offer it (this also
-	// covers .tar.zst, whose filepath.Ext is ".zst").
-	"zst": true,
 	// libraries / object files are never the CLI binary we want.
 	"a": true, "o": true, "so": true, "dll": true, "dylib": true, "lib": true,
+}
+
+var ignoredNameSuffixes = []string{
+	"-update",
+	"_update",
+	".update",
+}
+
+var archAliasGroups = [][]string{
+	{"amd64", "x86_64", "x86-64", "x64", "intel_64", "intel64"},
+	{"arm64", "aarch64", "arm_64", "arm-64", "armv8"},
+	{"386", "i386", "i686", "x86"},
 }
 
 // isUsableAsset reports whether an asset could be something bin can install.
@@ -209,6 +239,11 @@ var ignoredExts = map[string]bool{
 // "tool-7.1.0-linux-amd64"), and rejects only known non-binary file types.
 func isUsableAsset(name string) bool {
 	n := strings.ToLower(name)
+	for _, s := range ignoredNameSuffixes {
+		if strings.HasSuffix(n, s) {
+			return false
+		}
+	}
 
 	// Supported archives are always fine.
 	for _, s := range installableSuffixes {
@@ -234,6 +269,84 @@ func isUsableAsset(name string) bool {
 	// Everything else — raw binaries (extensionless or with a dotted version)
 	// and unknown formats — is kept; scoring decides the best match.
 	return true
+}
+
+func archAliasSet(aliases []string) map[string]bool {
+	out := make(map[string]bool, len(aliases))
+	for _, a := range aliases {
+		out[strings.ToLower(a)] = true
+	}
+	return out
+}
+
+func currentArchGroup() []string {
+	current := archAliasSet(resolver.GetArch())
+	for _, group := range archAliasGroups {
+		for _, alias := range group {
+			if current[strings.ToLower(alias)] {
+				return group
+			}
+		}
+	}
+	return resolver.GetArch()
+}
+
+func containsArchAlias(name string, aliases []string) bool {
+	n := strings.ToLower(name)
+	for _, alias := range aliases {
+		if strings.Contains(n, strings.ToLower(alias)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNativeArch(name string) bool {
+	return containsArchAlias(name, currentArchGroup())
+}
+
+func hasForeignArch(name string) bool {
+	native := archAliasSet(currentArchGroup())
+	for _, group := range archAliasGroups {
+		isNativeGroup := false
+		for _, alias := range group {
+			if native[strings.ToLower(alias)] {
+				isNativeGroup = true
+				break
+			}
+		}
+		if isNativeGroup {
+			continue
+		}
+		if containsArchAlias(name, group) {
+			return true
+		}
+	}
+	return false
+}
+
+// preferNativeArch drops obvious foreign-architecture assets once at least one
+// native-architecture asset is present. If a release has no native match, keep
+// the original set so the user can still choose manually.
+func preferNativeArch(as []*Asset) []*Asset {
+	hasNative := false
+	for _, a := range as {
+		if hasNativeArch(a.Name) {
+			hasNative = true
+			break
+		}
+	}
+	if !hasNative {
+		return as
+	}
+
+	out := make([]*Asset, 0, len(as))
+	for _, a := range as {
+		if hasNativeArch(a.Name) || !hasForeignArch(a.Name) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // preferMusl collapses assets that are identical except for their libc flavor
@@ -280,7 +393,7 @@ func preferMusl(as []*Asset) []*Asset {
 	return out
 }
 
-var tarSuffixes = []string{".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tbz", ".tar"}
+var tarSuffixes = []string{".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2", ".tbz", ".tar.zst", ".tzst", ".tar"}
 
 // archiveStem returns the asset name without its archive suffix, plus whether
 // it was a tar-family or a zip archive.
@@ -363,6 +476,7 @@ func Preview(repoName string, names []string) (chosen string, options []string) 
 	}
 	usable = preferArchiveType(usable)
 	usable = preferMusl(usable)
+	usable = preferNativeArch(usable)
 
 	f := &Filter{opts: &FilterOpts{}}
 	matches := f.scoredMatches(repoName, usable)
@@ -402,6 +516,7 @@ func (f *Filter) SelectReleaseAsset(repoName string, as []*Asset) (*FilteredAsse
 	}
 	usable = preferArchiveType(usable)
 	usable = preferMusl(usable)
+	usable = preferNativeArch(usable)
 
 	fp := Fingerprint(usable)
 
@@ -452,7 +567,9 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 
 	scores := map[string]int{}
 	scoreKeys := []string{}
-	scores[repoName] = 1
+	if repoName != "" {
+		scores[repoName] = 1
+	}
 	for _, os := range resolver.GetOS() {
 		scores[os] = 10
 	}
@@ -492,6 +609,7 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 			matches = append(matches[:i], matches[i+1:]...)
 		}
 	}
+	matches = preferPackageName(matches, f.opts.PackageName)
 
 	// AppImage is a GUI-app fallback; if a regular binary/archive scored just
 	// as high, drop the AppImage(s) so the CLI build is preferred. AppImage-only
@@ -514,6 +632,99 @@ func (f *Filter) scoredMatches(repoName string, as []*Asset) []*FilteredAsset {
 		matches = kept
 	}
 	return matches
+}
+
+func preferPackageName(matches []*FilteredAsset, packageName string) []*FilteredAsset {
+	best := 0
+	for _, m := range matches {
+		if rank := packageNameRank(m.Name, packageName); rank > best {
+			best = rank
+		}
+	}
+	if best == 0 {
+		return matches
+	}
+
+	out := make([]*FilteredAsset, 0, len(matches))
+	for _, m := range matches {
+		if packageNameRank(m.Name, packageName) == best {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func packageNameRank(assetName, packageName string) int {
+	nameTokens := assetTokens(assetName)
+	packageTokens := assetTokens(packageName)
+	if len(packageTokens) == 0 || len(nameTokens) < len(packageTokens) {
+		return 0
+	}
+
+	for i := 0; i <= len(nameTokens)-len(packageTokens); i++ {
+		if !tokensEqual(nameTokens[i:i+len(packageTokens)], packageTokens) {
+			continue
+		}
+		if i == 0 {
+			if len(nameTokens) == len(packageTokens) || isPlatformOrVersionToken(nameTokens[len(packageTokens)]) {
+				return 3
+			}
+			return 2
+		}
+		return 1
+	}
+	return 0
+}
+
+func assetTokens(name string) []string {
+	n := strings.ToLower(name)
+	if stem, isTar, isZip := archiveStem(n); isTar || isZip {
+		n = stem
+	} else {
+		for _, s := range []string{".appimage", ".exe"} {
+			n = strings.TrimSuffix(n, s)
+		}
+	}
+
+	raw := assetTokenRe.Split(n, -1)
+	out := make([]string, 0, len(raw))
+	for _, token := range raw {
+		if token != "" {
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+func tokensEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isPlatformOrVersionToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	if assetVersionRe.MatchString(token) {
+		return true
+	}
+	switch token {
+	case "linux", "darwin", "macos", "osx", "windows", "win",
+		"freebsd", "openbsd", "netbsd", "dragonfly",
+		"unknown", "musl", "gnu", "glibc", "static",
+		"amd64", "x86", "x64", "intel", "arm64", "aarch64", "arm",
+		"386", "i386", "i686":
+		return true
+	default:
+		return false
+	}
 }
 
 // FilterAssets selects the proper asset, prompting the user when it can't
@@ -591,6 +802,7 @@ func SanitizeName(name, version string) string {
 
 // ProcessURL processes a FilteredAsset by uncompressing/unarchiving the URL of the asset.
 func (f *Filter) ProcessURL(gf *FilteredAsset) (*finalFile, error) {
+	f.repoName = gf.RepoName
 	f.name = gf.Name
 	// We're not closing the body here since the caller is in charge of that
 	req, err := http.NewRequest(http.MethodGet, gf.URL, nil)
@@ -649,6 +861,8 @@ func (f *Filter) processReader(r io.Reader) (*finalFile, error) {
 		processor = f.processXz
 	case matchers.TypeBz2:
 		processor = f.processBz2
+	case matchers.TypeZstd:
+		processor = f.processZst
 	case matchers.TypeZip:
 		processor = f.processZip
 	}
@@ -667,12 +881,15 @@ func (f *Filter) processReader(r io.Reader) (*finalFile, error) {
 		if len(outFile.PackageFingerprint) > 0 {
 			f.packageFingerprint = outFile.PackageFingerprint
 		}
+		if len(outFile.Sidecars) > 0 {
+			f.sidecars = outFile.Sidecars
+		}
 
 		// In case of e.g. a .tar.gz, process the uncompressed archive by calling recursively
 		return f.processReader(outputFile)
 	}
 
-	return &finalFile{Source: outputFile, Name: f.name, PackagePath: f.packagePath, PackageFingerprint: f.packageFingerprint}, err
+	return &finalFile{Source: outputFile, Name: f.name, PackagePath: f.packagePath, PackageFingerprint: f.packageFingerprint, Sidecars: f.sidecars}, err
 }
 
 // processGz receives a tar.gz file and returns the
@@ -689,6 +906,7 @@ func (f *Filter) processGz(name string, r io.Reader) (*finalFile, error) {
 func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 	tr := tar.NewReader(r)
 	tarFiles := map[string][]byte{}
+	tarLinks := map[string]string{} // symlink path -> link target
 	if len(f.opts.PackagePath) > 0 {
 		log.Debugf("Processing tag with PackagePath %s\n", f.opts.PackagePath)
 	}
@@ -702,12 +920,15 @@ func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 			continue
 		}
 
-		if header.Typeflag == tar.TypeReg {
+		switch header.Typeflag {
+		case tar.TypeReg:
 			bs, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, err
 			}
 			tarFiles[header.Name] = bs
+		case tar.TypeSymlink, tar.TypeLink:
+			tarLinks[header.Name] = header.Linkname
 		}
 	}
 	if len(tarFiles) == 0 {
@@ -718,13 +939,91 @@ func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &finalFile{Source: bytes.NewReader(tarFiles[selectedFile]), Name: filepath.Base(selectedFile), PackagePath: selectedFile, PackageFingerprint: f.packageFingerprint}, nil
+
+	out := &finalFile{Source: bytes.NewReader(tarFiles[selectedFile]), Name: filepath.Base(selectedFile), PackagePath: selectedFile, PackageFingerprint: f.packageFingerprint}
+	if f.opts.CollectLibs {
+		out.Sidecars = collectLibClosure(tarFiles[selectedFile], tarFiles, tarLinks)
+	}
+	return out, nil
+}
+
+// collectLibClosure resolves the shared-library dependency closure of binary
+// (its DT_NEEDED, transitively) against the shared libraries present in the same
+// archive, following symlinks. System libraries not shipped in the archive are
+// skipped. Returns sidecars keyed by basename (regular files and symlinks).
+func collectLibClosure(binary []byte, files map[string][]byte, links map[string]string) map[string]*Sidecar {
+	// index archive entries by basename
+	fileByBase := map[string][]byte{}
+	for p, data := range files {
+		if isSharedLib(p) {
+			fileByBase[filepath.Base(p)] = data
+		}
+	}
+	linkByBase := map[string]string{}
+	for p, target := range links {
+		if isSharedLib(p) {
+			linkByBase[filepath.Base(p)] = filepath.Base(target)
+		}
+	}
+
+	needed := func(data []byte) []string {
+		ef, err := elf.NewFile(bytes.NewReader(data))
+		if err != nil {
+			return nil
+		}
+		defer ef.Close()
+		libs, _ := ef.ImportedLibraries()
+		return libs
+	}
+
+	out := map[string]*Sidecar{}
+	seen := map[string]bool{}
+	var queue []string
+	queue = append(queue, needed(binary)...)
+
+	for len(queue) > 0 {
+		base := queue[0]
+		queue = queue[1:]
+		if base == "" || seen[base] {
+			continue
+		}
+		seen[base] = true
+
+		if target, ok := linkByBase[base]; ok {
+			out[base] = &Sidecar{Link: target}
+			queue = append(queue, target) // resolve the link target too
+			continue
+		}
+		if data, ok := fileByBase[base]; ok {
+			out[base] = &Sidecar{Data: data}
+			queue = append(queue, needed(data)...)
+		}
+		// otherwise it's a system lib (not in the archive); skip.
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// isSharedLib reports whether a path looks like a shared object (.so / .so.N…).
+func isSharedLib(p string) bool {
+	b := filepath.Base(p)
+	return strings.HasSuffix(b, ".so") || strings.Contains(b, ".so.")
 }
 
 func (f *Filter) processBz2(name string, r io.Reader) (*finalFile, error) {
 	br := bzip2.NewReader(r)
 
 	return &finalFile{Source: br, Name: name}, nil
+}
+
+func (f *Filter) processZst(name string, r io.Reader) (*finalFile, error) {
+	zr, err := zstd.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	return &finalFile{Source: zr.IOReadCloser(), Name: name}, nil
 }
 
 func (f *Filter) processXz(name string, r io.Reader) (*finalFile, error) {
@@ -781,7 +1080,7 @@ func (f *Filter) processZip(name string, r io.Reader) (*finalFile, error) {
 //
 // It records the current fingerprint on the Filter so it can be persisted.
 func (f *Filter) pickArchiveFile(name string, files map[string][]byte) (string, error) {
-	usable := installableCandidates(files)
+	usable := preferNativeArch(installableCandidates(files))
 	fp := Fingerprint(usable)
 	f.packageFingerprint = fp
 
@@ -868,7 +1167,7 @@ func isSupportedExt(filename string) bool {
 		case msiType, matchers.TypeDeb, matchers.TypeRpm, ascType:
 			log.Debugf("Filename %s doesn't have a supported extension", filename)
 			return false
-		case matchers.TypeGz, types.Unknown, matchers.TypeZip, matchers.TypeXz, matchers.TypeTar, matchers.TypeBz2, matchers.TypeExe:
+		case matchers.TypeGz, types.Unknown, matchers.TypeZip, matchers.TypeXz, matchers.TypeTar, matchers.TypeBz2, matchers.TypeZstd, matchers.TypeExe:
 			break
 		default:
 			log.Debugf("Filename %s doesn't have a supported extension", filename)

@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/bresilla/bin/src/pkg/assets"
 )
 
 var ErrInvalidProvider = errors.New("invalid provider")
@@ -26,6 +28,9 @@ type File struct {
 	// PackageFingerprint is the normalized set of installable files seen inside
 	// the archive, persisted so the inner-file choice can be reused too.
 	PackageFingerprint []string
+	// Libs holds the binary's shared-library dependency closure extracted from
+	// the same archive (keyed by basename), when CollectLibs was requested.
+	Libs map[string]*assets.Sidecar
 }
 
 func (f *File) Hash() ([]byte, error) {
@@ -51,6 +56,8 @@ type FetchOpts struct {
 	PackageFingerprint []string
 	// NonInteractive makes asset selection fail instead of prompting.
 	NonInteractive bool
+	// CollectLibs requests extraction of the binary's shared-library closure.
+	CollectLibs bool
 }
 
 type Provider interface {

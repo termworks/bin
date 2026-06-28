@@ -100,7 +100,7 @@ func (g *hashiCorp) Fetch(opts *FetchOpts) (*File, error) {
 		candidates = append(candidates, &assets.Asset{Name: link.Filename, URL: link.URL})
 	}
 
-	f := assets.NewFilter(&assets.FilterOpts{SkipScoring: opts.All, PackagePath: opts.PackagePath, PackageFingerprint: opts.PackageFingerprint, SkipPathCheck: opts.SkipPatchCheck, PackageName: opts.PackageName, SelectedAsset: opts.SelectedAsset, AssetFingerprint: opts.AssetFingerprint, Recheck: opts.Recheck, NonInteractive: opts.NonInteractive})
+	f := assets.NewFilter(&assets.FilterOpts{SkipScoring: opts.All, PackagePath: opts.PackagePath, PackageFingerprint: opts.PackageFingerprint, SkipPathCheck: opts.SkipPatchCheck, PackageName: opts.PackageName, SelectedAsset: opts.SelectedAsset, AssetFingerprint: opts.AssetFingerprint, Recheck: opts.Recheck, NonInteractive: opts.NonInteractive, CollectLibs: opts.CollectLibs})
 	gf, err := f.SelectReleaseAsset(g.repo, candidates)
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func (g *hashiCorp) Fetch(opts *FetchOpts) (*File, error) {
 	// TODO calculate file hash. Not sure if we can / should do it here
 	// since we don't want to read the file unnecesarily. Additionally, sometimes
 	// releases have .sha256 files, so it'd be nice to check for those also
-	file := &File{Data: outFile.Source, Name: outFile.Name, Version: version, PackagePath: outFile.PackagePath, PackageFingerprint: outFile.PackageFingerprint, SelectedAsset: assets.NormalizeAssetName(gf.Name), AssetFingerprint: gf.Fingerprint}
+	file := &File{Data: outFile.Source, Name: outFile.Name, Version: version, PackagePath: outFile.PackagePath, PackageFingerprint: outFile.PackageFingerprint, SelectedAsset: assets.NormalizeAssetName(gf.Name), AssetFingerprint: gf.Fingerprint, Libs: outFile.Sidecars}
 
 	return file, nil
 }

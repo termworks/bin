@@ -44,6 +44,10 @@ type Binary struct {
 	// with no tags is treated as belonging to "default". Persisted in the
 	// manifest since they're portable, not per-machine state.
 	Tags []string `json:"tags,omitempty"`
+	// Patch, when set, makes bin fix up the installed ELF after
+	// install/ensure/update (interpreter + bundled/system libraries) so prebuilt
+	// binaries run on this host. Portable intent, so it lives in the manifest.
+	Patch bool `json:"patch,omitempty"`
 	// StateURL holds a release- or version-specific URL, persisted only in state
 	StateURL string `json:"-"`
 	// SelectedAsset is the version-normalized name of the release asset the
@@ -478,6 +482,10 @@ func UpsertBinary(c *Binary) error {
 			if c.Description == "" {
 				c.Description = existing.Description
 			}
+			// Patch is a portable per-binary intent; preserve it unless re-set.
+			if !c.Patch {
+				c.Patch = existing.Patch
+			}
 		}
 		if len(c.Tags) == 0 {
 			c.Tags = []string{"default"}
@@ -488,6 +496,36 @@ func UpsertBinary(c *Binary) error {
 		}
 	}
 	return nil
+}
+
+// ForgetBinarySelection clears the remembered release-asset and inner-archive
+// choices for one binary while keeping its URL, tags, hash, version, pin state,
+// and installed path. The next install/ensure/update must select an asset again
+// instead of silently reusing a stale or wrong choice.
+func ForgetBinarySelection(path string) error {
+	b, ok := cfg.Bins[path]
+	if !ok {
+		expanded := os.ExpandEnv(path)
+		for k, candidate := range cfg.Bins {
+			if candidate != nil && os.ExpandEnv(candidate.Path) == expanded {
+				path = k
+				b = candidate
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok || b == nil {
+		return fmt.Errorf("binary path %s not found", path)
+	}
+
+	b.RemoteName = ""
+	b.PackagePath = ""
+	b.SelectedAsset = ""
+	b.AssetFingerprint = nil
+	b.PackageFingerprint = nil
+	cfg.Bins[path] = b
+	return writeAll()
 }
 
 // RemoveBinaries removes the specified paths
@@ -529,6 +567,7 @@ type manifestBinary struct {
 	Provider    string   `json:"provider"`
 	Description string   `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	Patch       bool     `json:"patch,omitempty"`
 }
 
 func writeManifest(manifestPath string) error {
@@ -554,6 +593,7 @@ func writeManifest(manifestPath string) error {
 			Provider:    b.Provider,
 			Description: b.Description,
 			Tags:        b.Tags,
+			Patch:       b.Patch,
 		}
 	}
 	enc := json.NewEncoder(f)
@@ -588,9 +628,22 @@ func writeState(statePath string) error {
 // one of darwin, freebsd, linux, and so on.
 func GetArch() []string {
 	res := []string{runtime.GOARCH}
-	if runtime.GOARCH == "amd64" {
+	switch runtime.GOARCH {
+	case "amd64":
 		res = append(res, "x86_64")
 		res = append(res, "x64")
+		res = append(res, "x86-64")
+		res = append(res, "intel_64")
+		res = append(res, "intel64")
+	case "arm64":
+		res = append(res, "aarch64")
+		res = append(res, "arm_64")
+		res = append(res, "arm-64")
+		res = append(res, "armv8")
+	case "386":
+		res = append(res, "i386")
+		res = append(res, "i686")
+		res = append(res, "x86")
 	}
 	return res
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20] - 2026-06-28
+
+### <!-- 0 -->⛰️  Features
+
+- Improve asset filtering and add ability to forget selections
+- Automatically patch ELF binaries for host compatibility
+
 ## [0.1.19] - 2026-06-19
 
 ### <!-- 0 -->⛰️  Features

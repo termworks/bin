@@ -82,7 +82,7 @@ func newEnsureCmd() *ensureCmd {
 				}
 				log.Debugf("Using provider '%s' for '%s'", p.GetID(), binCfg.URL)
 
-				pResult, err := p.Fetch(&providers.FetchOpts{Version: binCfg.Version, PackagePath: binCfg.PackagePath, PackageName: binCfg.RemoteName, SelectedAsset: binCfg.SelectedAsset, AssetFingerprint: binCfg.AssetFingerprint, PackageFingerprint: binCfg.PackageFingerprint})
+				pResult, err := p.Fetch(&providers.FetchOpts{Version: binCfg.Version, PackagePath: binCfg.PackagePath, PackageName: binCfg.RemoteName, SelectedAsset: binCfg.SelectedAsset, AssetFingerprint: binCfg.AssetFingerprint, PackageFingerprint: binCfg.PackageFingerprint, CollectLibs: binCfg.Patch})
 				if err != nil {
 					return err
 				}
@@ -91,6 +91,9 @@ func newEnsureCmd() *ensureCmd {
 				if err != nil {
 					return fmt.Errorf("error installing binary: %w", err)
 				}
+
+				// Re-apply host patches (interpreter + bundled libs) if wanted.
+				hash, _ = applyHostPatches(ep, pResult.Libs, binCfg.Patch, hash)
 
 				err = config.UpsertBinary(&config.Binary{
 					RemoteName:         pResult.Name,
@@ -103,6 +106,7 @@ func newEnsureCmd() *ensureCmd {
 					SelectedAsset:      pResult.SelectedAsset,
 					AssetFingerprint:   pResult.AssetFingerprint,
 					PackageFingerprint: pResult.PackageFingerprint,
+					Patch:              binCfg.Patch,
 				})
 				if err != nil {
 					return err

@@ -130,7 +130,7 @@ func newUpdateCmd() *updateCmd {
 				}
 				log.Debugf("Using provider '%s' for '%s'", p.GetID(), ui.url)
 
-				pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackagePath: b.PackagePath, SkipPatchCheck: root.opts.skipPathCheck, PackageName: b.RemoteName, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint, Recheck: root.opts.recheck})
+				pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackagePath: b.PackagePath, SkipPatchCheck: root.opts.skipPathCheck, PackageName: b.RemoteName, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint, Recheck: root.opts.recheck, CollectLibs: b.Patch})
 				if err != nil {
 					if root.opts.continueOnError {
 						updateFailures[b] = fmt.Errorf("Error while fetching %v: %w", ui.url, err)
@@ -144,6 +144,9 @@ func newUpdateCmd() *updateCmd {
 					return fmt.Errorf("error installing binary: %w", err)
 				}
 
+				// Re-apply host patches (interpreter + bundled libs) if wanted.
+				hash, _ = applyHostPatches(b.Path, pResult.Libs, b.Patch, hash)
+
 				err = config.UpsertBinary(&config.Binary{
 					RemoteName:         pResult.Name,
 					Path:               b.Path,
@@ -156,6 +159,7 @@ func newUpdateCmd() *updateCmd {
 					SelectedAsset:      pResult.SelectedAsset,
 					AssetFingerprint:   pResult.AssetFingerprint,
 					PackageFingerprint: pResult.PackageFingerprint,
+					Patch:              b.Patch,
 				})
 
 				if err != nil {

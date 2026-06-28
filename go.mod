@@ -8,12 +8,14 @@ require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/coreos/go-semver v0.3.1
 	github.com/docker/docker v28.3.2+incompatible
 	github.com/fatih/color v1.18.0
 	github.com/google/go-github/v31 v31.0.0
 	github.com/h2non/filetype v1.1.3
 	github.com/hashicorp/go-version v1.7.0
+	github.com/klauspost/compress v1.18.6
 	github.com/krolaw/zipstream v0.0.0-20241109034754-4a67be70fe31
 	github.com/mattn/go-isatty v0.0.20
 	github.com/spf13/cobra v1.9.1
@@ -33,7 +35,6 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.3.2 // indirect
 	github.com/charmbracelet/lipgloss/v2 v2.0.0-beta1 // indirect
-	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect

@@ -41,6 +41,7 @@ type installOpts struct {
 	force    bool
 	provider string
 	all      bool
+	noPatch  bool
 }
 
 func newInstallCmd() *installCmd {
@@ -55,6 +56,7 @@ func newInstallCmd() *installCmd {
 		Args:          cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			u := args[0]
+			packageName := defaultBinName(u)
 			defaultPath := config.Get().DefaultPath
 
 			var resolvedPath string
@@ -68,7 +70,7 @@ func newInstallCmd() *installCmd {
 				// Ask what to name the binary, defaulting to the repo name
 				// (so "github.com/pythops/impala" installs as "impala", not the
 				// mangled asset name).
-				name, err := ui.AskString("Install as:", defaultBinName(u))
+				name, err := ui.AskString("Install as:", packageName)
 				if err != nil {
 					return err
 				}
@@ -84,7 +86,7 @@ func newInstallCmd() *installCmd {
 			}
 			log.Debugf("Using provider '%s' for '%s'", p.GetID(), u)
 
-			pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all})
+			pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackageName: packageName, CollectLibs: !root.opts.noPatch})
 			if err != nil {
 				return err
 			}
@@ -98,6 +100,13 @@ func newInstallCmd() *installCmd {
 			if err != nil {
 				return fmt.Errorf("error installing binary: %w", err)
 			}
+
+			// Make the binary runnable on this host: rewrite a missing
+			// interpreter and install any bundled libs it needs. No-ops
+			// when nothing is broken. If it changed, persist the patched hash so
+			// a later ensure doesn't see a mismatch, and record the intent.
+			var patched bool
+			hash, patched = applyHostPatches(resolvedPath, pResult.Libs, !root.opts.noPatch, hash)
 
 			// Store an absolute path. If the path is already absolute once
 			// environment variables are expanded (e.g. "$HOME/.local/bin/foo"),
@@ -126,6 +135,7 @@ func newInstallCmd() *installCmd {
 				AssetFingerprint:   pResult.AssetFingerprint,
 				PackageFingerprint: pResult.PackageFingerprint,
 				Tags:               wantedTags(),
+				Patch:              patched,
 			})
 
 			if err != nil {
@@ -142,6 +152,7 @@ func newInstallCmd() *installCmd {
 	root.cmd.Flags().BoolVarP(&root.opts.force, "force", "f", false, "Force the installation even if the file already exists")
 	root.cmd.Flags().BoolVarP(&root.opts.all, "all", "a", false, "Show all possible download options (skip scoring & filtering)")
 	root.cmd.Flags().StringVarP(&root.opts.provider, "provider", "p", "", "Forces to use a specific provider")
+	root.cmd.Flags().BoolVar(&root.opts.noPatch, "no-patch", false, "Don't auto-fix the ELF interpreter / bundled libs for this host")
 	return root
 }
 
@@ -201,5 +212,7 @@ func saveToDisk(f *providers.File, path string, overwrite bool) ([]byte, error) 
 		return nil, err
 	}
 
+	file.Close()
+	warnMissingLibs(epath)
 	return h.Sum(nil), nil
 }

@@ -214,6 +214,7 @@ type listKeyMap struct {
 	Check  key.Binding
 	Pin    key.Binding
 	Edit   key.Binding
+	Forget key.Binding
 	Open   key.Binding
 	Remove key.Binding
 	Tag    key.Binding
@@ -225,6 +226,7 @@ func newListKeys() listKeyMap {
 		Check:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "check all")),
 		Pin:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pin")),
 		Edit:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+		Forget: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "forget choice")),
 		Open:   key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open repo")),
 		Remove: key.NewBinding(key.WithKeys("d", "x"), key.WithHelp("d", "remove")),
 		Tag:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "tag")),
@@ -234,15 +236,15 @@ func newListKeys() listKeyMap {
 // ---- model ----
 
 type tuiModel struct {
-	tags      []string // selectable tag scopes, "all" first
-	tagIdx    int
-	rows      []*binRow
-	list      list.Model
-	keys      listKeyMap
-	app       lipgloss.Style
-	busy      int
-	confirm   bool
-	confirmTo string
+	tags       []string // selectable tag scopes, "all" first
+	tagIdx     int
+	rows       []*binRow
+	list       list.Model
+	keys       listKeyMap
+	app        lipgloss.Style
+	busy       int
+	confirm    bool
+	confirmTo  string
 	confirmYes bool
 
 	width, height int
@@ -266,10 +268,10 @@ func newTUIModel() tuiModel {
 	l.SetFilteringEnabled(true)
 	l.StatusMessageLifetime = 4 * time.Second
 	l.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.Update, keys.Check, keys.Pin, keys.Edit, keys.Open, keys.Remove, keys.Tag}
+		return []key.Binding{keys.Update, keys.Check, keys.Pin, keys.Edit, keys.Forget, keys.Open, keys.Remove, keys.Tag}
 	}
 	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.Update, keys.Check, keys.Pin, keys.Edit, keys.Open, keys.Remove, keys.Tag}
+		return []key.Binding{keys.Update, keys.Check, keys.Pin, keys.Edit, keys.Forget, keys.Open, keys.Remove, keys.Tag}
 	}
 	// Sensible initial size so there's content before the first WindowSizeMsg
 	// (and on terminals that don't report a size).
@@ -511,6 +513,20 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startEdit(r)
 		}
 		return m, nil
+
+	case key.Matches(msg, m.keys.Forget):
+		r := m.selectedRow()
+		if r == nil {
+			return m, nil
+		}
+		if err := config.ForgetBinarySelection(r.b.Path); err != nil {
+			return m, m.list.NewStatusMessage(ui.ErrStyle.Render("forget failed: " + err.Error()))
+		}
+		if b := config.Get().Bins[r.b.Path]; b != nil {
+			r.b = b
+		}
+		r.note = ui.OKStyle.Render("forgot choice")
+		return m, m.list.NewStatusMessage("forgot saved choice for " + filepath.Base(r.path))
 
 	case key.Matches(msg, m.keys.Open):
 		r := m.selectedRow()
