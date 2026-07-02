@@ -171,10 +171,10 @@ Asset selection scores candidates by OS/arch and filters out non-installable fil
 
 ## NixOS / Home Manager
 
-`bin` ships a flake package plus NixOS and Home Manager modules. The modules
-write a desired-state JSON file and run `bin apply` non-interactively, so a Nix
-configuration can ensure GitHub/GitLab/Codeberg/HashiCorp binaries without
-prompting.
+`bin` ships a flake package plus NixOS and Home Manager modules. In Nix you
+write a normal list of repositories; the module generates `list.json`, then runs
+`bin --tag all ensure`. `ensure` downloads missing binaries and fills the
+mutable state file with versions, hashes, and remembered asset choices.
 
 ```nix
 {
@@ -190,19 +190,11 @@ prompting.
             enable = true;
             installDir = "/var/lib/bin/bin";
 
-            binaries = {
-              mdbook = {
-                url = "github.com/rust-lang/mdBook";
-                version = "v0.5.3";
-                asset = "mdbook-v0.5.3-x86_64-unknown-linux-musl.tar.gz";
-              };
-
-              atuin = {
-                url = "github.com/atuinsh/atuin";
-                asset = "atuin-x86_64-unknown-linux-musl.tar.gz";
-                patch = true;
-              };
-            };
+            entries = [
+              "github.com/rust-lang/mdBook"
+              { repo = "github.com/git-town/git-town"; tag = "essential"; }
+              { repo = "github.com/atuinsh/atuin"; name = "atuin"; tag = "shell"; }
+            ];
           };
         }
       ];
@@ -219,35 +211,38 @@ For Home Manager:
 
   programs.bin = {
     enable = true;
-    binaries.git-town = {
-      url = "github.com/git-town/git-town";
-      asset = "git-town_linux_intel_64.tar.gz";
-    };
+    entries = [
+      "github.com/rust-lang/mdBook"
+      { repo = "github.com/git-town/git-town"; tag = "essential"; }
+    ];
   };
 }
 ```
 
-The imperative backend is also available directly:
+The generated manifest is just regular `bin` config:
 
 ```json
 {
   "default_path": "/var/lib/bin/bin",
   "bins": {
-    "git-town": {
+    "/var/lib/bin/bin/git-town": {
+      "path": "/var/lib/bin/bin/git-town",
       "url": "github.com/git-town/git-town",
-      "asset": "git-town_linux_intel_64.tar.gz",
-      "tags": ["nix"]
+      "tags": ["essential"],
+      "patch": true
     }
   }
 }
 ```
+
+You can also create that JSON yourself and run:
 
 ```sh
 BIN_CONFIG_FILE=/var/lib/bin/list.json \
 BIN_STATE_FILE=/var/lib/bin/config.state.json \
 BIN_DEFAULT_PATH=/var/lib/bin/bin \
 BIN_NONINTERACTIVE=1 \
-bin apply desired.json --non-interactive
+bin --tag all ensure
 ```
 
 ---
