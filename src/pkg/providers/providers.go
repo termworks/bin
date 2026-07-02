@@ -52,6 +52,10 @@ type FetchOpts struct {
 	SelectedAsset    string
 	AssetFingerprint []string
 	Recheck          bool
+	// WantedAsset / WantedPackagePath are declarative exact choices for
+	// noninteractive callers.
+	WantedAsset       string
+	WantedPackagePath string
 	// PackageFingerprint carries the remembered inner-archive file set.
 	PackageFingerprint []string
 	// NonInteractive makes asset selection fail instead of prompting.

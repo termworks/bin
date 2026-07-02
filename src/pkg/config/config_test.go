@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -48,5 +49,71 @@ func TestForgetBinarySelectionClearsOnlySavedChoices(t *testing.T) {
 		b.StateURL != "https://github.com/atuinsh/atuin/releases/tag/v1.0.0" ||
 		len(b.Tags) != 2 || b.Tags[0] != "default" || b.Tags[1] != "shell" {
 		t.Fatalf("non-selection fields changed unexpectedly: %+v", b)
+	}
+}
+
+func TestPathOverridesForDeclarativeIntegrations(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "cfg", "list.json")
+	stateFile := filepath.Join(tmp, "state", "state.json")
+
+	t.Setenv("BIN_CONFIG_FILE", configFile)
+	t.Setenv("BIN_STATE_FILE", stateFile)
+
+	gotConfig, err := getConfigPath()
+	if err != nil {
+		t.Fatalf("getConfigPath: %v", err)
+	}
+	if gotConfig != configFile {
+		t.Fatalf("config path = %q, want %q", gotConfig, configFile)
+	}
+
+	gotState, err := getStatePath(configFile)
+	if err != nil {
+		t.Fatalf("getStatePath: %v", err)
+	}
+	if gotState != stateFile {
+		t.Fatalf("state path = %q, want %q", gotState, stateFile)
+	}
+}
+
+func TestNonInteractiveDefaultPathFromEnvironment(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("BIN_CONFIG_FILE", filepath.Join(tmp, "list.json"))
+	t.Setenv("BIN_STATE_FILE", filepath.Join(tmp, "state.json"))
+	t.Setenv("BIN_DEFAULT_PATH", filepath.Join(tmp, "bin"))
+	t.Setenv("BIN_NONINTERACTIVE", "1")
+	cfg = config{}
+
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+	if cfg.DefaultPath != filepath.Join(tmp, "bin") {
+		t.Fatalf("DefaultPath = %q", cfg.DefaultPath)
+	}
+}
+
+func TestExplicitConfigPathDoesNotMergeSiblingJSON(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "list.json")
+	sibling := filepath.Join(tmp, "desired.json")
+
+	t.Setenv("BIN_CONFIG_FILE", configFile)
+	t.Setenv("BIN_STATE_FILE", filepath.Join(tmp, "state.json"))
+	t.Setenv("BIN_DEFAULT_PATH", filepath.Join(tmp, "bin"))
+	t.Setenv("BIN_NONINTERACTIVE", "1")
+	cfg = config{}
+
+	if err := os.WriteFile(sibling, []byte(`{"not":"a bin manifest"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+	if _, err := os.Stat(sibling); err != nil {
+		t.Fatalf("sibling JSON should not be renamed/merged: %v", err)
+	}
+	if _, err := os.Stat(sibling + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("sibling JSON was unexpectedly renamed to .bak")
 	}
 }

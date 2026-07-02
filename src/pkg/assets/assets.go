@@ -123,6 +123,11 @@ type FilterOpts struct {
 	SelectedAsset    string
 	AssetFingerprint []string
 	Recheck          bool
+	// WantedAsset and WantedPackagePath are declarative exact choices, used by
+	// noninteractive integrations such as NixOS modules. They bypass scoring
+	// but still require the named asset/file to exist in the current release.
+	WantedAsset       string
+	WantedPackagePath string
 
 	// NonInteractive makes asset selection fail instead of prompting when it
 	// can't decide on its own. Used by the TUI, which owns the terminal.
@@ -524,6 +529,17 @@ func (f *Filter) SelectReleaseAsset(repoName string, as []*Asset) (*FilteredAsse
 	selectFrom := usable
 	if f.opts.SkipScoring {
 		selectFrom = as
+	}
+
+	if !f.opts.SkipScoring && f.opts.WantedAsset != "" {
+		want := NormalizeAssetName(f.opts.WantedAsset)
+		for _, a := range usable {
+			if a.Name == f.opts.WantedAsset || NormalizeAssetName(a.Name) == want {
+				log.Debugf("Using requested asset %q", a.Name)
+				return &FilteredAsset{RepoName: repoName, Name: a.Name, DisplayName: a.DisplayName, URL: a.URL, Fingerprint: fp}, nil
+			}
+		}
+		return nil, fmt.Errorf("requested asset %q not found in compatible release assets", f.opts.WantedAsset)
 	}
 
 	if !f.opts.Recheck && !f.opts.SkipScoring && f.opts.SelectedAsset != "" {
@@ -1083,6 +1099,17 @@ func (f *Filter) pickArchiveFile(name string, files map[string][]byte) (string, 
 	usable := preferNativeArch(installableCandidates(files))
 	fp := Fingerprint(usable)
 	f.packageFingerprint = fp
+
+	if f.opts.WantedPackagePath != "" {
+		want := NormalizeAssetName(f.opts.WantedPackagePath)
+		for _, a := range usable {
+			if a.Name == f.opts.WantedPackagePath || NormalizeAssetName(a.Name) == want {
+				log.Debugf("Using requested package path %q", a.Name)
+				return a.Name, nil
+			}
+		}
+		return "", fmt.Errorf("requested package path %q not found in archive", f.opts.WantedPackagePath)
+	}
 
 	if !f.opts.Recheck && !f.opts.SkipPathCheck && f.opts.PackagePath != "" {
 		want := NormalizeAssetName(f.opts.PackagePath)

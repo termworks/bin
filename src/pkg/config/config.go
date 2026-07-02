@@ -162,7 +162,13 @@ func CheckAndLoad() error {
 
 	// If DefaultPath not set, prompt user and write both files
 	if len(cfg.DefaultPath) == 0 {
-		cfg.DefaultPath, err = getDefaultPath()
+		if p := os.Getenv("BIN_DEFAULT_PATH"); p != "" {
+			cfg.DefaultPath = p
+		} else if envBool("BIN_NONINTERACTIVE") {
+			return fmt.Errorf("default path is not configured; set BIN_DEFAULT_PATH or run bin interactively once")
+		} else {
+			cfg.DefaultPath, err = getDefaultPath()
+		}
 		if err != nil {
 			for {
 				log.Info("Could not find a PATH directory automatically, falling back to manual selection")
@@ -282,6 +288,14 @@ func normalizeTags() bool {
 // files are merged too, and the sources are renamed to *.bak so the merge runs
 // only once. Returns true if anything was merged.
 func mergeSiblingManifests(configPath string, st *state) bool {
+	// Explicit config paths are used by declarative integrations (NixOS/Home
+	// Manager, tests, scripts). Do not scan the containing directory for legacy
+	// sibling manifests there: the directory may be /tmp, /var/lib, or another
+	// shared location containing unrelated JSON inputs.
+	if os.Getenv("BIN_CONFIG_FILE") != "" || os.Getenv("BIN_CONFIG_HOME") != "" {
+		return false
+	}
+
 	dir := filepath.Dir(configPath)
 	mainBase := filepath.Base(configPath)
 	entries, err := os.ReadDir(dir)
@@ -668,6 +682,13 @@ func GetOS() []string {
 func getConfigPath() (string, error) {
 	var c string
 
+	if p := os.Getenv("BIN_CONFIG_FILE"); p != "" {
+		return p, nil
+	}
+	if p := os.Getenv("BIN_CONFIG_HOME"); p != "" {
+		return filepath.Join(p, "list.json"), nil
+	}
+
 	home, homeErr := os.UserHomeDir()
 	if homeErr == nil {
 		if _, err := os.Stat(filepath.Join(home, ".bin", "list.json")); !os.IsNotExist(err) {
@@ -691,6 +712,13 @@ func getConfigPath() (string, error) {
 
 // getStatePath computes the per-machine state file path derived from manifest path
 func getStatePath(manifestPath string) (string, error) {
+	if p := os.Getenv("BIN_STATE_FILE"); p != "" {
+		return p, nil
+	}
+	if p := os.Getenv("BIN_STATE_HOME"); p != "" {
+		return filepath.Join(p, "config.state.json"), nil
+	}
+
 	base := filepath.Base(manifestPath)
 	name := strings.TrimSuffix(base, filepath.Ext(base)) + ".state.json"
 	// Prefer XDG_DATA_HOME
@@ -725,5 +753,14 @@ func GetOSSpecificExtensions() []string {
 		return []string{"exe"}
 	default:
 		return nil
+	}
+}
+
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
