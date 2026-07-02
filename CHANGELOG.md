@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.2] - 2026-07-02
+
+### <!-- 0 -->⛰️  Features
+
+- Cache repository descriptions in state file
+
 ## [0.2.1] - 2026-07-02
 
 ### <!-- 0 -->⛰️  Features
