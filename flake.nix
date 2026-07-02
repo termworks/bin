@@ -1,5 +1,5 @@
 {
-  description = "robolibs crate development shell";
+  description = "bin binary manager";
 
   inputs = {
     # Pinned to a rev that still accepts the `kernel` arg in
@@ -12,7 +12,7 @@
   };
 
   outputs =
-    { nixpkgs, flake-utils, nixgl, ... }:
+    { self, nixpkgs, flake-utils, nixgl, ... }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
@@ -73,8 +73,17 @@
           libxi
           libxrandr
         ];
+        binPackage = pkgs.callPackage ./nix/package.nix { };
       in
       {
+        packages.default = binPackage;
+        packages.bin = binPackage;
+
+        apps.default = flake-utils.lib.mkApp {
+          drv = binPackage;
+          exePath = "/bin/bin";
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.go
@@ -103,5 +112,13 @@
           WGPU_DEBUG = "0";
         };
       }
-    );
+    )
+    // {
+      overlays.default = final: prev: {
+        bin = final.callPackage ./nix/package.nix { };
+      };
+
+      nixosModules.default = import ./nix/nixos-module.nix { inherit self; };
+      homeManagerModules.default = import ./nix/home-manager-module.nix { inherit self; };
+    };
 }

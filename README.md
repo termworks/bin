@@ -169,6 +169,89 @@ Asset selection scores candidates by OS/arch and filters out non-installable fil
 
 ---
 
+## NixOS / Home Manager
+
+`bin` ships a flake package plus NixOS and Home Manager modules. The modules
+write a desired-state JSON file and run `bin apply` non-interactively, so a Nix
+configuration can ensure GitHub/GitLab/Codeberg/HashiCorp binaries without
+prompting.
+
+```nix
+{
+  inputs.bin.url = "github:bresilla/bin";
+
+  outputs = { nixpkgs, bin, ... }: {
+    nixosConfigurations.host = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        bin.nixosModules.default
+        {
+          programs.bin = {
+            enable = true;
+            installDir = "/var/lib/bin/bin";
+
+            binaries = {
+              mdbook = {
+                url = "github.com/rust-lang/mdBook";
+                version = "v0.5.3";
+                asset = "mdbook-v0.5.3-x86_64-unknown-linux-musl.tar.gz";
+              };
+
+              atuin = {
+                url = "github.com/atuinsh/atuin";
+                asset = "atuin-x86_64-unknown-linux-musl.tar.gz";
+                patch = true;
+              };
+            };
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+For Home Manager:
+
+```nix
+{
+  imports = [ inputs.bin.homeManagerModules.default ];
+
+  programs.bin = {
+    enable = true;
+    binaries.git-town = {
+      url = "github.com/git-town/git-town";
+      asset = "git-town_linux_intel_64.tar.gz";
+    };
+  };
+}
+```
+
+The imperative backend is also available directly:
+
+```json
+{
+  "default_path": "/var/lib/bin/bin",
+  "bins": {
+    "git-town": {
+      "url": "github.com/git-town/git-town",
+      "asset": "git-town_linux_intel_64.tar.gz",
+      "tags": ["nix"]
+    }
+  }
+}
+```
+
+```sh
+BIN_CONFIG_FILE=/var/lib/bin/list.json \
+BIN_STATE_FILE=/var/lib/bin/config.state.json \
+BIN_DEFAULT_PATH=/var/lib/bin/bin \
+BIN_NONINTERACTIVE=1 \
+bin apply desired.json --non-interactive
+```
+
+---
+
 ## Authentication
 
 Set as needed in your environment:
