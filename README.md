@@ -147,7 +147,7 @@ row_bg_selected = 237
 | File | Purpose |
 | --- | --- |
 | `$XDG_CONFIG_HOME/bin/list.json` | **Manifest** — portable: path, url, provider, tags, description |
-| `$XDG_DATA_HOME/bin/config.state.json` | **State** — per-machine: version, hash, package path, pinned, selected asset |
+| `$XDG_DATA_HOME/bin/config.state.json` | **State** — per-machine: version, hash, package path, pinned, selected asset, cached description |
 | `$XDG_CONFIG_HOME/bin/config` | TUI colors |
 
 The manifest and per-machine state are kept separate so the manifest is safe to share or check into dotfiles. Config resolution honors `$XDG_CONFIG_HOME`, falling back to `~/.config/bin` (or a legacy `~/.bin`).
@@ -174,7 +174,8 @@ Asset selection scores candidates by OS/arch and filters out non-installable fil
 `bin` ships a flake package plus NixOS and Home Manager modules. In Nix you
 write a normal list of repositories; the module generates `list.json`, then runs
 `bin --tag all ensure`. `ensure` downloads missing binaries and fills the
-mutable state file with versions, hashes, and remembered asset choices.
+mutable state file with versions, hashes, remembered asset choices, and cached
+repository descriptions.
 
 ```nix
 {

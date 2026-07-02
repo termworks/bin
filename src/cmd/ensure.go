@@ -50,6 +50,15 @@ func newEnsureCmd() *ensureCmd {
 			// use the same code in both places
 			ensured := 0
 			for _, binCfg := range binsToProcess {
+				if binCfg.Description == "" {
+					if desc := fetchDescription(binCfg); desc != "" {
+						binCfg.Description = desc
+						if err := config.UpsertBinary(binCfg); err != nil {
+							return err
+						}
+					}
+				}
+
 				ep := os.ExpandEnv(binCfg.Path)
 				_, err := os.Stat(ep)
 

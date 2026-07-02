@@ -117,3 +117,60 @@ func TestExplicitConfigPathDoesNotMergeSiblingJSON(t *testing.T) {
 		t.Fatalf("sibling JSON was unexpectedly renamed to .bak")
 	}
 }
+
+func TestStateDescriptionOverlaysDeclarativeManifest(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "list.json")
+	stateFile := filepath.Join(tmp, "state.json")
+	installDir := filepath.Join(tmp, "bin")
+	binPath := filepath.Join(installDir, "mdbook")
+
+	t.Setenv("BIN_CONFIG_FILE", configFile)
+	t.Setenv("BIN_STATE_FILE", stateFile)
+	t.Setenv("BIN_DEFAULT_PATH", installDir)
+	t.Setenv("BIN_NONINTERACTIVE", "1")
+	cfg = config{}
+
+	if err := os.WriteFile(configFile, []byte(`{
+		"default_path": "`+installDir+`",
+		"bins": {
+			"`+binPath+`": {
+				"path": "`+binPath+`",
+				"url": "github.com/rust-lang/mdBook",
+				"provider": "github",
+				"tags": ["default"],
+				"patch": true
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateFile, []byte(`{
+		"bins": {
+			"`+binPath+`": {
+				"version": "v0.5.3",
+				"hash": "abc123",
+				"package_path": "mdbook",
+				"url": "github.com/rust-lang/mdBook",
+				"description": "Create book from markdown files"
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+
+	got := cfg.Bins[binPath]
+	if got == nil {
+		t.Fatal("expected mdbook entry")
+	}
+	if got.Description != "Create book from markdown files" {
+		t.Fatalf("Description = %q", got.Description)
+	}
+	if got.Version != "v0.5.3" || got.Hash != "abc123" || got.PackagePath != "mdbook" {
+		t.Fatalf("state fields were not overlaid: %+v", got)
+	}
+}
