@@ -33,7 +33,7 @@ type Binary struct {
 	URL        string `json:"url"`
 	Provider   string `json:"provider"`
 	// Description is the upstream repository's one-line description, persisted
-	// in the manifest so the TUI can show it without hitting the network.
+	// in the manifest/state so the TUI can show it without hitting the network.
 	Description string `json:"description,omitempty"`
 	// if file is installed from a package format (zip, tar, etc) store
 	// the package path in config so we don't ask the user to select
@@ -71,6 +71,7 @@ type stateEntry struct {
 	PackagePath        string   `json:"package_path"`
 	Pinned             bool     `json:"pinned"`
 	URL                string   `json:"url"`
+	Description        string   `json:"description,omitempty"`
 	SelectedAsset      string   `json:"selected_asset,omitempty"`
 	AssetFingerprint   []string `json:"asset_fingerprint,omitempty"`
 	PackageFingerprint []string `json:"package_fingerprint,omitempty"`
@@ -149,6 +150,9 @@ func CheckAndLoad() error {
 			b.Version = sb.Version
 			if sb.RemoteName != "" {
 				b.RemoteName = sb.RemoteName
+			}
+			if b.Description == "" {
+				b.Description = sb.Description
 			}
 			b.Hash = sb.Hash
 			b.PackagePath = sb.PackagePath
@@ -631,7 +635,18 @@ func writeState(statePath string) error {
 		if b == nil {
 			continue
 		}
-		st.Bins[k] = &stateEntry{Version: b.Version, RemoteName: b.RemoteName, Hash: b.Hash, PackagePath: b.PackagePath, Pinned: b.Pinned, URL: b.StateURL, SelectedAsset: b.SelectedAsset, AssetFingerprint: b.AssetFingerprint, PackageFingerprint: b.PackageFingerprint}
+		st.Bins[k] = &stateEntry{
+			Version:            b.Version,
+			RemoteName:         b.RemoteName,
+			Hash:               b.Hash,
+			PackagePath:        b.PackagePath,
+			Pinned:             b.Pinned,
+			URL:                b.StateURL,
+			Description:        b.Description,
+			SelectedAsset:      b.SelectedAsset,
+			AssetFingerprint:   b.AssetFingerprint,
+			PackageFingerprint: b.PackageFingerprint,
+		}
 	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "    ")
