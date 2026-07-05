@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.3] - 2026-07-05
+
+### <!-- 0 -->⛰️  Features
+
+- System and user config path handling
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Changes
+
 ## [0.2.2] - 2026-07-02
 
 ### <!-- 0 -->⛰️  Features

@@ -5,7 +5,7 @@
 
 buildGoModule rec {
   pname = "bin";
-  version = "0.2.2";
+  version = "0.2.3";
 
   src = lib.cleanSource ../.;
   subPackages = [ "src" ];
