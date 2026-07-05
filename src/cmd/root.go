@@ -57,10 +57,13 @@ func (cmd *rootCmd) Execute(args []string) {
 }
 
 type rootCmd struct {
-	cmd   *cobra.Command
-	debug bool
-	tags  []string
-	exit  func(int)
+	cmd         *cobra.Command
+	debug       bool
+	tags        []string
+	configFile  string
+	stateFile   string
+	defaultPath string
+	exit        func(int)
 }
 
 // activeTags holds the value of the persistent --tag flag for the current
@@ -138,6 +141,11 @@ func newRootCmd(version string, exit func(int)) *rootCmd {
 			}
 
 			activeTags = root.tags
+			config.SetPathOverrides(config.PathOverrides{
+				ConfigFile: root.configFile,
+				StateFile:  root.stateFile,
+				DefaultDir: root.defaultPath,
+			})
 
 			// check and load config after handlers are configured
 			err := config.CheckAndLoad()
@@ -152,6 +160,9 @@ func newRootCmd(version string, exit func(int)) *rootCmd {
 
 	cmd.PersistentFlags().BoolVar(&root.debug, "debug", false, "Enable debug mode")
 	cmd.PersistentFlags().StringSliceVarP(&root.tags, "tag", "t", nil, "Tag context: which tier to act on (default \"default\", \"all\" for every binary)")
+	cmd.PersistentFlags().StringVar(&root.configFile, "config-file", "", "Path to bin manifest (env BIN_CONFIG_FILE)")
+	cmd.PersistentFlags().StringVar(&root.stateFile, "state-file", "", "Path to mutable state file (env BIN_STATE_FILE)")
+	cmd.PersistentFlags().StringVar(&root.defaultPath, "default-path", "", "Default install directory (env BIN_DEFAULT_PATH)")
 	cmd.AddCommand(
 		newInstallCmd().cmd,
 		newEnsureCmd().cmd,

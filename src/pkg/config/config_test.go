@@ -3,10 +3,42 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
+func resetConfigTestState(t *testing.T, uid int) {
+	t.Helper()
+
+	oldOverrides := pathOverrides
+	oldEffectiveUID := effectiveUID
+	oldCfg := cfg
+	pathOverrides = PathOverrides{}
+	effectiveUID = func() int { return uid }
+	cfg = config{}
+	t.Cleanup(func() {
+		pathOverrides = oldOverrides
+		effectiveUID = oldEffectiveUID
+		cfg = oldCfg
+	})
+
+	for _, name := range []string{
+		"BIN_CONFIG_FILE",
+		"BIN_CONFIG_HOME",
+		"BIN_STATE_FILE",
+		"BIN_STATE_HOME",
+		"BIN_DEFAULT_PATH",
+		"BIN_NONINTERACTIVE",
+		"XDG_CONFIG_HOME",
+		"XDG_STATE_HOME",
+		"XDG_DATA_HOME",
+	} {
+		t.Setenv(name, "")
+	}
+}
+
 func TestForgetBinarySelectionClearsOnlySavedChoices(t *testing.T) {
+	resetConfigTestState(t, 1000)
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
@@ -53,6 +85,7 @@ func TestForgetBinarySelectionClearsOnlySavedChoices(t *testing.T) {
 }
 
 func TestPathOverridesForDeclarativeIntegrations(t *testing.T) {
+	resetConfigTestState(t, 1000)
 	tmp := t.TempDir()
 	configFile := filepath.Join(tmp, "cfg", "list.json")
 	stateFile := filepath.Join(tmp, "state", "state.json")
@@ -78,6 +111,7 @@ func TestPathOverridesForDeclarativeIntegrations(t *testing.T) {
 }
 
 func TestNonInteractiveDefaultPathFromEnvironment(t *testing.T) {
+	resetConfigTestState(t, 1000)
 	tmp := t.TempDir()
 	t.Setenv("BIN_CONFIG_FILE", filepath.Join(tmp, "list.json"))
 	t.Setenv("BIN_STATE_FILE", filepath.Join(tmp, "state.json"))
@@ -94,6 +128,7 @@ func TestNonInteractiveDefaultPathFromEnvironment(t *testing.T) {
 }
 
 func TestExplicitConfigPathDoesNotMergeSiblingJSON(t *testing.T) {
+	resetConfigTestState(t, 1000)
 	tmp := t.TempDir()
 	configFile := filepath.Join(tmp, "list.json")
 	sibling := filepath.Join(tmp, "desired.json")
@@ -119,6 +154,7 @@ func TestExplicitConfigPathDoesNotMergeSiblingJSON(t *testing.T) {
 }
 
 func TestStateDescriptionOverlaysDeclarativeManifest(t *testing.T) {
+	resetConfigTestState(t, 1000)
 	tmp := t.TempDir()
 	configFile := filepath.Join(tmp, "list.json")
 	stateFile := filepath.Join(tmp, "state.json")
@@ -172,5 +208,205 @@ func TestStateDescriptionOverlaysDeclarativeManifest(t *testing.T) {
 	}
 	if got.Version != "v0.5.3" || got.Hash != "abc123" || got.PackagePath != "mdbook" {
 		t.Fatalf("state fields were not overlaid: %+v", got)
+	}
+}
+
+func TestUserDefaultPathsUseXDGConfigAndState(t *testing.T) {
+	resetConfigTestState(t, 1000)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	configPath, err := getConfigPath()
+	if err != nil {
+		t.Fatalf("getConfigPath: %v", err)
+	}
+	if want := filepath.Join(tmp, ".config", "bin", "list.json"); configPath != want {
+		t.Fatalf("config path = %q, want %q", configPath, want)
+	}
+
+	statePath, err := getStatePath(configPath)
+	if err != nil {
+		t.Fatalf("getStatePath: %v", err)
+	}
+	if want := filepath.Join(tmp, ".local", "state", "bin", "config.state.json"); statePath != want {
+		t.Fatalf("state path = %q, want %q", statePath, want)
+	}
+
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+	if want := filepath.Join(tmp, ".local", "bin"); cfg.DefaultPath != want {
+		t.Fatalf("DefaultPath = %q, want %q", cfg.DefaultPath, want)
+	}
+	for _, dir := range []string{filepath.Join(tmp, ".local", "bin"), filepath.Join(tmp, ".local", "state", "bin")} {
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			t.Fatalf("expected directory %s to exist, stat=%v err=%v", dir, st, err)
+		}
+	}
+}
+
+func TestSystemDefaultPathsDoNotUseRootHome(t *testing.T) {
+	resetConfigTestState(t, 0)
+	tmp := t.TempDir()
+	t.Setenv("HOME", filepath.Join(tmp, "root"))
+
+	configPath, err := getConfigPath()
+	if err != nil {
+		t.Fatalf("getConfigPath: %v", err)
+	}
+	if configPath != "/etc/bin/list.json" {
+		t.Fatalf("config path = %q", configPath)
+	}
+
+	statePath, err := getStatePath(configPath)
+	if err != nil {
+		t.Fatalf("getStatePath: %v", err)
+	}
+	if statePath != "/var/lib/bin/config.state.json" {
+		t.Fatalf("state path = %q", statePath)
+	}
+
+	defaultPath, err := defaultInstallPath()
+	if err != nil {
+		t.Fatalf("defaultInstallPath: %v", err)
+	}
+	if defaultPath != "/usr/local/bin" {
+		t.Fatalf("default install path = %q", defaultPath)
+	}
+}
+
+func TestRootEnvOverridesAllowManagedTempPaths(t *testing.T) {
+	resetConfigTestState(t, 0)
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "etc", "bin", "list.json")
+	stateFile := filepath.Join(tmp, "var", "lib", "bin", "config.state.json")
+	installDir := filepath.Join(tmp, "usr", "local", "bin")
+
+	t.Setenv("BIN_CONFIG_FILE", configFile)
+	t.Setenv("BIN_STATE_FILE", stateFile)
+	t.Setenv("BIN_DEFAULT_PATH", installDir)
+
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+	if cfg.DefaultPath != installDir {
+		t.Fatalf("DefaultPath = %q, want %q", cfg.DefaultPath, installDir)
+	}
+	for _, path := range []string{configFile, stateFile, installDir} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to exist: %v", path, err)
+		}
+	}
+}
+
+func TestPathlessManifestUsesDefaultPath(t *testing.T) {
+	resetConfigTestState(t, 1000)
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "list.json")
+	installDir := filepath.Join(tmp, "bin")
+
+	t.Setenv("BIN_CONFIG_FILE", configFile)
+	t.Setenv("BIN_STATE_FILE", filepath.Join(tmp, "state.json"))
+	t.Setenv("BIN_DEFAULT_PATH", installDir)
+
+	if err := os.WriteFile(configFile, []byte(`{
+		"default_path": "`+installDir+`",
+		"bins": {
+			"fd": {
+				"url": "https://github.com/sharkdp/fd",
+				"provider": "github",
+				"tags": ["default"]
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+	wantPath := filepath.Join(installDir, "fd")
+	if cfg.Bins[wantPath] == nil {
+		t.Fatalf("missing normalized entry %s in %#v", wantPath, cfg.Bins)
+	}
+	if cfg.Bins[wantPath].Path != wantPath {
+		t.Fatalf("Path = %q, want %q", cfg.Bins[wantPath].Path, wantPath)
+	}
+}
+
+func TestSystemConfigRejectsHomeExpansionPaths(t *testing.T) {
+	resetConfigTestState(t, 0)
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "list.json")
+
+	t.Setenv("BIN_CONFIG_FILE", configFile)
+	t.Setenv("BIN_STATE_FILE", filepath.Join(tmp, "state.json"))
+	t.Setenv("HOME", filepath.Join(tmp, "root"))
+
+	if err := os.WriteFile(configFile, []byte(`{
+		"default_path": "$HOME/.local/bin",
+		"bins": {}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := CheckAndLoad()
+	if err == nil {
+		t.Fatal("expected system config with $HOME default_path to fail")
+	}
+	if !strings.Contains(err.Error(), "must be absolute") && !strings.Contains(err.Error(), "must not use") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLegacyShareStateMigratesToXDGState(t *testing.T) {
+	resetConfigTestState(t, 1000)
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	configFile := filepath.Join(tmp, ".config", "bin", "list.json")
+	legacyStateFile := filepath.Join(tmp, ".local", "share", "bin", "list.state.json")
+	binPath := filepath.Join(tmp, ".local", "bin", "fd")
+
+	if err := os.MkdirAll(filepath.Dir(configFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(legacyStateFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configFile, []byte(`{
+		"default_path": "`+filepath.Join(tmp, ".local", "bin")+`",
+		"bins": {
+			"`+binPath+`": {
+				"path": "`+binPath+`",
+				"url": "https://github.com/sharkdp/fd",
+				"provider": "github",
+				"tags": ["default"]
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyStateFile, []byte(`{
+		"bins": {
+			"`+binPath+`": {
+				"version": "v10.0.0",
+				"hash": "abc123",
+				"package_path": "fd",
+				"url": "https://github.com/sharkdp/fd"
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CheckAndLoad(); err != nil {
+		t.Fatalf("CheckAndLoad: %v", err)
+	}
+	if cfg.Bins[binPath].Version != "v10.0.0" {
+		t.Fatalf("legacy state was not loaded: %+v", cfg.Bins[binPath])
+	}
+	newStateFile := filepath.Join(tmp, ".local", "state", "bin", "config.state.json")
+	if _, err := os.Stat(newStateFile); err != nil {
+		t.Fatalf("new state file was not written: %v", err)
 	}
 }
