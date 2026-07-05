@@ -133,7 +133,7 @@ in
     };
     stateFile = lib.mkOption {
       type = lib.types.str;
-      default = "${config.xdg.dataHome}/bin/config.state.json";
+      default = "${config.home.homeDirectory}/.local/state/bin/config.state.json";
       description = "Mutable bin state path for versions, hashes, and selected assets.";
     };
     addToPath = lib.mkOption {

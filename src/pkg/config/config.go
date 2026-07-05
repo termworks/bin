@@ -1,13 +1,11 @@
 package config
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,6 +14,22 @@ import (
 )
 
 var cfg config
+var pathOverrides PathOverrides
+var effectiveUID = os.Geteuid
+
+// PathOverrides are explicit process-local path choices, normally populated
+// from root CLI flags before config is loaded. Empty fields fall back to env
+// vars and then root/user defaults.
+type PathOverrides struct {
+	ConfigFile string
+	StateFile  string
+	DefaultDir string
+}
+
+// SetPathOverrides configures explicit path choices from CLI flags.
+func SetPathOverrides(overrides PathOverrides) {
+	pathOverrides = overrides
+}
 
 type config struct {
 	// DefaultPath might not be expanded so it's important that
@@ -88,17 +102,20 @@ func CheckAndLoad() error {
 	}
 
 	confDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(confDir, 0755); err != nil {
-		return fmt.Errorf("Error creating config directory [%v]", err)
+	systemConfig := isSystemDefaultConfig(configPath)
+	if err := prepareConfigDir(confDir, systemConfig); err != nil {
+		return err
 	}
 	log.Debugf("Config directory is: %s", confDir)
 
-	// Load manifest (may not exist yet)
-	mf, err := os.OpenFile(configPath, os.O_RDWR|os.O_CREATE, 0664)
-	if err != nil && !os.IsNotExist(err) {
+	// Load manifest. User/override manifests may be created on first run; the
+	// root/system manifest is declarative and must already exist.
+	mf, err := openManifest(configPath, systemConfig)
+	if err != nil {
 		return err
 	}
 	defer mf.Close()
+	cfg = config{}
 	if err := json.NewDecoder(mf).Decode(&cfg); err != nil {
 		if err == io.EOF {
 			cfg.Bins = map[string]*Binary{}
@@ -110,9 +127,22 @@ func CheckAndLoad() error {
 		cfg.Bins = map[string]*Binary{}
 	}
 
+	defaultPathChanged, err := ensureDefaultPath()
+	if err != nil {
+		return err
+	}
+
+	// Entries may omit path; in that case install into default_path using the
+	// map key (or URL basename) as the binary name.
+	pathsChanged := normalizeManifestPaths()
+
 	// Re-key any entries that aren't keyed by their Path before we overlay
 	// state below. The rest of the codebase relies on key==Path.
 	keysChanged := normalizeManifestKeys()
+
+	if err := validateInstallPaths(); err != nil {
+		return err
+	}
 
 	// Detect a legacy manifest that still stores remote_name (now state-only):
 	// any RemoteName present right after decoding came from the manifest, so a
@@ -125,16 +155,15 @@ func CheckAndLoad() error {
 		}
 	}
 
-	// Load state and overlay
+	// Load state and overlay. If an old state location is found, writeAll below
+	// will move the data to the new config.state.json location.
 	sp, err := getStatePath(configPath)
 	if err != nil {
 		return err
 	}
 	st := state{Bins: map[string]*stateEntry{}}
-	if sf, err := os.Open(sp); err == nil {
-		defer sf.Close()
-		_ = json.NewDecoder(sf).Decode(&st)
-	}
+	loadedStatePath, loadedState := loadState(configPath, sp, &st)
+	stateMigrationNeeded := loadedState && loadedStatePath != sp
 
 	// Ensure current bins carry "default" before merging siblings, so a binary
 	// present in both the main config and a sibling keeps "default" and gains
@@ -164,45 +193,13 @@ func CheckAndLoad() error {
 		}
 	}
 
-	// If DefaultPath not set, prompt user and write both files
-	if len(cfg.DefaultPath) == 0 {
-		if p := os.Getenv("BIN_DEFAULT_PATH"); p != "" {
-			cfg.DefaultPath = p
-		} else if envBool("BIN_NONINTERACTIVE") {
-			return fmt.Errorf("default path is not configured; set BIN_DEFAULT_PATH or run bin interactively once")
-		} else {
-			cfg.DefaultPath, err = getDefaultPath()
-		}
-		if err != nil {
-			for {
-				log.Info("Could not find a PATH directory automatically, falling back to manual selection")
-				reader := bufio.NewReader(os.Stdin)
-				var response string
-				fmt.Printf("\nPlease specify a download directory: ")
-				response, err := reader.ReadString('\n')
-				if err != nil {
-					return fmt.Errorf("Invalid input")
-				}
-				response = strings.TrimSpace(response)
-
-				if err = checkDirExistsAndWritable(response); err != nil {
-					log.Debugf("Could not set download directory [%s]: [%v]", response, err)
-					continue
-				}
-
-				cfg.DefaultPath = response
-				break
-			}
-		}
-
-		if err := writeAll(); err != nil {
-			return err
-		}
+	if err := ensureRuntimeDirs(sp); err != nil {
+		return err
 	}
 
-	// Migration: if manifest contains state but state file is empty, split
+	// Migration: if manifest contains state but state file is empty, split.
 	needsMigration := false
-	if len(st.Bins) == 0 {
+	if len(cfg.Bins) > 0 && (!loadedState || len(st.Bins) == 0) {
 		for _, b := range cfg.Bins {
 			if b == nil {
 				continue
@@ -213,7 +210,7 @@ func CheckAndLoad() error {
 			}
 		}
 	}
-	if needsMigration {
+	if needsMigration || stateMigrationNeeded {
 		log.Infof("Splitting config manifest and state into %s and %s", configPath, sp)
 		if err := writeAll(); err != nil {
 			return err
@@ -226,13 +223,234 @@ func CheckAndLoad() error {
 	// Normalize URLs in manifest to base repository links when possible
 	urlsChanged := normalizeManifestURLs()
 	providersChanged := normalizeProviders()
-	if urlsChanged || providersChanged || keysChanged || mergeChanged || preTags || tagsChanged || remoteNameInManifest {
+	if urlsChanged || providersChanged || defaultPathChanged || pathsChanged || keysChanged || mergeChanged || preTags || tagsChanged || remoteNameInManifest {
 		if err := writeAll(); err != nil {
 			return err
 		}
 	}
 
 	log.Debugf("Download path set to %s", cfg.DefaultPath)
+	return nil
+}
+
+func prepareConfigDir(dir string, systemConfig bool) error {
+	if systemConfig {
+		info, err := os.Stat(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("system config directory %s does not exist; create /etc/bin/list.json or set BIN_CONFIG_FILE", dir)
+			}
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("system config path %s is not a directory", dir)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("error creating config directory %s: %w", dir, err)
+	}
+	return nil
+}
+
+func openManifest(path string, systemConfig bool) (*os.File, error) {
+	if systemConfig {
+		f, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("system config file %s does not exist; create it with Nix or set BIN_CONFIG_FILE", path)
+			}
+			return nil, err
+		}
+		return f, nil
+	}
+
+	f, err := os.Open(path)
+	if err == nil {
+		return f, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o664)
+}
+
+func ensureDefaultPath() (bool, error) {
+	if p, ok := explicitDefaultPath(); ok {
+		changed := cfg.DefaultPath != p
+		cfg.DefaultPath = p
+		return changed, nil
+	}
+	if cfg.DefaultPath != "" {
+		return false, nil
+	}
+	p, err := defaultInstallPath()
+	if err != nil {
+		return false, err
+	}
+	cfg.DefaultPath = p
+	return true, nil
+}
+
+func ensureRuntimeDirs(statePath string) error {
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		return fmt.Errorf("error creating state directory %s: %w", filepath.Dir(statePath), err)
+	}
+	if cfg.DefaultPath == "" {
+		return nil
+	}
+	p := cfg.DefaultPath
+	if !isSystemMode() {
+		p = os.ExpandEnv(p)
+	}
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		return fmt.Errorf("error creating default install directory %s: %w", p, err)
+	}
+	return nil
+}
+
+func loadState(configPath, primaryPath string, st *state) (string, bool) {
+	for _, p := range stateReadPaths(configPath, primaryPath) {
+		sf, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		err = json.NewDecoder(sf).Decode(st)
+		_ = sf.Close()
+		if err == nil || err == io.EOF {
+			return p, true
+		}
+		log.Warnf("Skipping state file %s: %v", p, err)
+	}
+	return "", false
+}
+
+func stateReadPaths(configPath, primaryPath string) []string {
+	paths := []string{primaryPath}
+	if !hasConfigPathOverride() && !hasStatePathOverride() {
+		paths = append(paths, legacyStatePaths(configPath)...)
+	}
+
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+func legacyStatePaths(configPath string) []string {
+	base := filepath.Base(configPath)
+	oldName := strings.TrimSuffix(base, filepath.Ext(base)) + ".state.json"
+	names := []string{oldName, "config.state.json"}
+	var paths []string
+
+	addNames := func(dir string) {
+		for _, name := range names {
+			paths = append(paths, filepath.Join(dir, name))
+		}
+	}
+
+	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
+		addNames(filepath.Join(d, "bin"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		switch runtime.GOOS {
+		case "darwin":
+			addNames(filepath.Join(home, "Library", "Application Support", "bin"))
+		case "windows":
+			if ld := os.Getenv("LOCALAPPDATA"); ld != "" {
+				addNames(filepath.Join(ld, "bin"))
+			}
+			if ad := os.Getenv("APPDATA"); ad != "" {
+				addNames(filepath.Join(ad, "bin"))
+			}
+			addNames(filepath.Join(home, ".local", "share", "bin"))
+		default:
+			addNames(filepath.Join(home, ".local", "share", "bin"))
+		}
+	}
+	addNames(filepath.Dir(configPath))
+	return paths
+}
+
+func normalizeManifestPaths() bool {
+	changed := false
+	for key, b := range cfg.Bins {
+		if b == nil || b.Path != "" {
+			continue
+		}
+		b.Path = filepath.Join(cfg.DefaultPath, manifestEntryName(key, b))
+		changed = true
+	}
+	return changed
+}
+
+func manifestEntryName(key string, b *Binary) string {
+	if key != "" && !strings.ContainsAny(key, `/\`) {
+		return key
+	}
+	if b.RemoteName != "" {
+		return b.RemoteName
+	}
+	if b.URL != "" {
+		return defaultBinaryName(b.URL)
+	}
+	name := filepath.Base(key)
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		return "bin"
+	}
+	return name
+}
+
+func defaultBinaryName(raw string) string {
+	s := raw
+	for _, p := range []string{"https://", "http://", "docker://", "goinstall://"} {
+		s = strings.TrimPrefix(s, p)
+	}
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "/"), ".git")
+	name := filepath.Base(s)
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		return "bin"
+	}
+	return name
+}
+
+func validateInstallPaths() error {
+	if !isSystemMode() {
+		return nil
+	}
+	if err := validateSystemPath("default_path", cfg.DefaultPath); err != nil {
+		return err
+	}
+	for _, b := range cfg.Bins {
+		if b == nil {
+			continue
+		}
+		if err := validateSystemPath("binary path", b.Path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSystemPath(label, p string) error {
+	if p == "" {
+		return nil
+	}
+	if strings.Contains(p, "$") || strings.HasPrefix(p, "~") {
+		return fmt.Errorf("system %s must be absolute and must not use shell/home expansion: %s", label, p)
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("system %s must be absolute: %s", label, p)
+	}
 	return nil
 }
 
@@ -296,7 +514,7 @@ func mergeSiblingManifests(configPath string, st *state) bool {
 	// Manager, tests, scripts). Do not scan the containing directory for legacy
 	// sibling manifests there: the directory may be /tmp, /var/lib, or another
 	// shared location containing unrelated JSON inputs.
-	if os.Getenv("BIN_CONFIG_FILE") != "" || os.Getenv("BIN_CONFIG_HOME") != "" {
+	if hasConfigPathOverride() || isSystemMode() {
 		return false
 	}
 
@@ -565,8 +783,12 @@ func writeAll() error {
 	if err != nil {
 		return err
 	}
-	if err := writeManifest(configPath); err != nil {
-		return err
+	if !isSystemDefaultConfig(configPath) {
+		if err := writeManifest(configPath); err != nil {
+			return err
+		}
+	} else {
+		log.Debugf("Skipping manifest write for declarative system config %s", configPath)
 	}
 	if err := writeState(statePath); err != nil {
 		return err
@@ -687,77 +909,118 @@ func GetOS() []string {
 	return res
 }
 
-// getConfigPath returns the path to the manifest file (list.json) respecting
-// the `XDG Base Directory specification` using the following strategy:
-//   - to prevent breaking of existing configurations, check if "$HOME/.bin/list.json"
-//     exists and return "$HOME/.bin"
-//   - if "XDG_CONFIG_HOME" is set, return "$XDG_CONFIG_HOME/bin"
-//   - if "$HOME/.config" exists, return "$home/.config/bin"
-//   - default to "$HOME/.bin/"
-func getConfigPath() (string, error) {
-	var c string
+func explicitDefaultPath() (string, bool) {
+	if p := pathOverrides.DefaultDir; p != "" {
+		return p, true
+	}
+	if p := os.Getenv("BIN_DEFAULT_PATH"); p != "" {
+		return p, true
+	}
+	return "", false
+}
 
+func defaultInstallPath() (string, error) {
+	if isSystemMode() {
+		return "/usr/local/bin", nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "bin"), nil
+}
+
+func hasConfigPathOverride() bool {
+	return pathOverrides.ConfigFile != "" ||
+		os.Getenv("BIN_CONFIG_FILE") != "" ||
+		os.Getenv("BIN_CONFIG_HOME") != ""
+}
+
+func hasStatePathOverride() bool {
+	return pathOverrides.StateFile != "" ||
+		os.Getenv("BIN_STATE_FILE") != "" ||
+		os.Getenv("BIN_STATE_HOME") != ""
+}
+
+func isSystemMode() bool {
+	return runtime.GOOS != "windows" && effectiveUID() == 0
+}
+
+func isSystemDefaultConfig(configPath string) bool {
+	return isSystemMode() && !hasConfigPathOverride() && configPath == "/etc/bin/list.json"
+}
+
+// getConfigPath returns the path to the manifest file (list.json). Root defaults
+// to the system/declarative config in /etc/bin; normal users default to XDG
+// config (or ~/.config/bin), with ~/.bin/list.json kept as a legacy fallback
+// only when no XDG config exists.
+func getConfigPath() (string, error) {
+	if p := pathOverrides.ConfigFile; p != "" {
+		return p, nil
+	}
 	if p := os.Getenv("BIN_CONFIG_FILE"); p != "" {
 		return p, nil
 	}
 	if p := os.Getenv("BIN_CONFIG_HOME"); p != "" {
 		return filepath.Join(p, "list.json"), nil
 	}
+	if isSystemMode() {
+		return "/etc/bin/list.json", nil
+	}
 
 	home, homeErr := os.UserHomeDir()
-	if homeErr == nil {
-		if _, err := os.Stat(filepath.Join(home, ".bin", "list.json")); !os.IsNotExist(err) {
-			return filepath.Join(path.Join(home, ".bin", "list.json")), nil
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		if homeErr != nil {
+			return "", homeErr
 		}
+		configHome = filepath.Join(home, ".config")
+	}
+	configPath := filepath.Join(configHome, "bin", "list.json")
+	if _, err := os.Stat(configPath); err == nil || homeErr != nil {
+		return configPath, nil
 	}
 
-	c = os.Getenv("XDG_CONFIG_HOME")
-	if c != "" {
-		return filepath.Join(c, "bin", "list.json"), nil
+	legacyPath := filepath.Join(home, ".bin", "list.json")
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath, nil
 	}
-	if homeErr != nil {
-		return "", homeErr
-	}
-	c = filepath.Join(home, ".config")
-	if _, err := os.Stat(c); !os.IsNotExist(err) {
-		return filepath.Join(c, "bin", "list.json"), nil
-	}
-	return filepath.Join(home, ".bin", "list.json"), nil
+	return configPath, nil
 }
 
-// getStatePath computes the per-machine state file path derived from manifest path
+// getStatePath computes the per-machine mutable state path. Unlike the
+// manifest, root writes under /var/lib and users write under XDG_STATE_HOME (or
+// ~/.local/state); legacy XDG_DATA_HOME paths are read separately for migration.
 func getStatePath(manifestPath string) (string, error) {
+	if p := pathOverrides.StateFile; p != "" {
+		return p, nil
+	}
 	if p := os.Getenv("BIN_STATE_FILE"); p != "" {
 		return p, nil
 	}
 	if p := os.Getenv("BIN_STATE_HOME"); p != "" {
 		return filepath.Join(p, "config.state.json"), nil
 	}
+	if isSystemMode() {
+		return "/var/lib/bin/config.state.json", nil
+	}
 
-	base := filepath.Base(manifestPath)
-	name := strings.TrimSuffix(base, filepath.Ext(base)) + ".state.json"
-	// Prefer XDG_DATA_HOME
-	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
-		return filepath.Join(d, "bin", name), nil
+	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+		return filepath.Join(d, "bin", "config.state.json"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "bin", name), nil
-	case "windows":
+	if runtime.GOOS == "windows" {
 		if ld := os.Getenv("LOCALAPPDATA"); ld != "" {
-			return filepath.Join(ld, "bin", name), nil
+			return filepath.Join(ld, "bin", "config.state.json"), nil
 		}
 		if ad := os.Getenv("APPDATA"); ad != "" {
-			return filepath.Join(ad, "bin", name), nil
+			return filepath.Join(ad, "bin", "config.state.json"), nil
 		}
-		return filepath.Join(home, ".local", "share", "bin", name), nil
-	default:
-		return filepath.Join(home, ".local", "share", "bin", name), nil
 	}
+	return filepath.Join(home, ".local", "state", "bin", "config.state.json"), nil
 }
 
 func GetOSSpecificExtensions() []string {

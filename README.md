@@ -147,10 +147,12 @@ row_bg_selected = 237
 | File | Purpose |
 | --- | --- |
 | `$XDG_CONFIG_HOME/bin/list.json` | **Manifest** — portable: path, url, provider, tags, description |
-| `$XDG_DATA_HOME/bin/config.state.json` | **State** — per-machine: version, hash, package path, pinned, selected asset, cached description |
+| `$XDG_STATE_HOME/bin/config.state.json` | **State** — per-machine: version, hash, package path, pinned, selected asset, cached description |
 | `$XDG_CONFIG_HOME/bin/config` | TUI colors |
 
 The manifest and per-machine state are kept separate so the manifest is safe to share or check into dotfiles. Config resolution honors `$XDG_CONFIG_HOME`, falling back to `~/.config/bin` (or a legacy `~/.bin`).
+When run as root without explicit overrides, `bin` reads `/etc/bin/list.json`,
+writes `/var/lib/bin/config.state.json`, and installs into `/usr/local/bin`.
 
 ---
 
@@ -189,7 +191,6 @@ repository descriptions.
         {
           programs.bin = {
             enable = true;
-            installDir = "/var/lib/bin/bin";
 
             entries = [
               "github.com/rust-lang/mdBook"
@@ -224,10 +225,10 @@ The generated manifest is just regular `bin` config:
 
 ```json
 {
-  "default_path": "/var/lib/bin/bin",
+  "default_path": "/usr/local/bin",
   "bins": {
-    "/var/lib/bin/bin/git-town": {
-      "path": "/var/lib/bin/bin/git-town",
+    "/usr/local/bin/git-town": {
+      "path": "/usr/local/bin/git-town",
       "url": "github.com/git-town/git-town",
       "tags": ["essential"],
       "patch": true
@@ -236,12 +237,18 @@ The generated manifest is just regular `bin` config:
 }
 ```
 
-You can also create that JSON yourself and run:
+For the default root/system paths, create `/etc/bin/list.json` and run:
 
 ```sh
-BIN_CONFIG_FILE=/var/lib/bin/list.json \
-BIN_STATE_FILE=/var/lib/bin/config.state.json \
-BIN_DEFAULT_PATH=/var/lib/bin/bin \
+sudo bin --tag all ensure
+```
+
+You can also point `bin` at an explicit manifest/state/install directory:
+
+```sh
+BIN_CONFIG_FILE=/tmp/bin/list.json \
+BIN_STATE_FILE=/tmp/bin/state.json \
+BIN_DEFAULT_PATH=/tmp/bin/bin \
 BIN_NONINTERACTIVE=1 \
 bin --tag all ensure
 ```

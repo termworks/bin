@@ -123,12 +123,12 @@ in
     };
     installDir = lib.mkOption {
       type = lib.types.str;
-      default = "/var/lib/bin/bin";
+      default = "/usr/local/bin";
       description = "Directory where managed binaries are installed.";
     };
     configFile = lib.mkOption {
       type = lib.types.str;
-      default = "/var/lib/bin/list.json";
+      default = "/etc/bin/list.json";
       description = "Generated bin manifest path for this module-managed instance.";
     };
     stateFile = lib.mkOption {
@@ -172,12 +172,22 @@ in
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ] ++ lib.optional cfg.addToPath managedPath;
+    environment.extraInit = lib.mkIf cfg.addToPath ''
+      case ":$PATH:" in
+        *:${cfg.installDir}:*) ;;
+        *) export PATH=${lib.escapeShellArg cfg.installDir}:$PATH ;;
+      esac
+    '';
+
+    environment.etc = lib.mkIf (cfg.configFile == "/etc/bin/list.json") {
+      "bin/list.json".source = manifest;
+    };
 
     systemd.tmpfiles.rules = [
       "d ${cfg.installDir} 0755 root root -"
-      "d ${dirOf cfg.configFile} 0755 root root -"
       "d ${dirOf cfg.stateFile} 0755 root root -"
-    ];
+    ] ++ lib.optional (cfg.configFile != "/etc/bin/list.json")
+      "d ${dirOf cfg.configFile} 0755 root root -";
 
     systemd.services.bin-ensure = lib.mkIf cfg.service.enable {
       description = "Ensure declarative bin-managed binaries";
@@ -186,17 +196,22 @@ in
       after = [ "network-online.target" ];
       restartTriggers = [ manifest cfg.package ];
       environment = {
-        BIN_CONFIG_FILE = cfg.configFile;
-        BIN_STATE_FILE = cfg.stateFile;
-        BIN_DEFAULT_PATH = cfg.installDir;
         BIN_NONINTERACTIVE = "1";
+      } // lib.optionalAttrs (cfg.configFile != "/etc/bin/list.json") {
+        BIN_CONFIG_FILE = cfg.configFile;
+      } // lib.optionalAttrs (cfg.stateFile != "/var/lib/bin/config.state.json") {
+        BIN_STATE_FILE = cfg.stateFile;
+      } // lib.optionalAttrs (cfg.installDir != "/usr/local/bin") {
+        BIN_DEFAULT_PATH = cfg.installDir;
       };
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
       };
       script = ''
-        ${pkgs.coreutils}/bin/install -D -m 0644 ${manifest} ${lib.escapeShellArg cfg.configFile}
+        ${lib.optionalString (cfg.configFile != "/etc/bin/list.json") ''
+          ${pkgs.coreutils}/bin/install -D -m 0644 ${manifest} ${lib.escapeShellArg cfg.configFile}
+        ''}
         ${pkgs.coreutils}/bin/mkdir -p ${lib.escapeShellArg cfg.installDir} ${lib.escapeShellArg (dirOf cfg.stateFile)}
         exec ${cfg.package}/bin/bin --tag all ensure
       '';
